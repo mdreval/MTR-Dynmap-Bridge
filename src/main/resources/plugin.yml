@@ -1,0 +1,8 @@
+name: MTR-Dynmap-Bridge
+version: ${version}
+author: IGROBAR
+main: com.igrobar.mtrdynmap.MTRDynmapBridge
+api-version: '1.21'
+softdepend:
+  - dynmap
+description: Universal MTR 4.x station/depot bridge for Dynmap with automatic world detection, optional world overrides and hourly synchronization.

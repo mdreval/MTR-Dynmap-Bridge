@@ -1,0 +1,12 @@
+# MTR-Dynmap Bridge 1.0.0.1
+# World mappings are detected automatically from the MTR dimensions on the server.
+# You normally do NOT need to edit this file.
+# On first synchronization, missing mappings are written here automatically.
+# If you have multiple worlds and want to choose a specific one, edit the mapping.
+# Example:
+# worlds:
+#   minecraft/overworld: Survival
+#   minecraft/the_nether: Survival_nether
+#   minecraft/the_end: Survival_the_end
+# Existing entries are preserved unless the configured world no longer exists.
+worlds:
