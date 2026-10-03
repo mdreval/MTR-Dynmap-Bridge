@@ -1,4 +1,5 @@
 # MTR-Dynmap-Bridge 1.0.0.1
+<img width="1911" height="837" alt="Screenshot_5" src="https://github.com/user-attachments/assets/2f74f293-d40a-44be-b1c6-6393e85d37b9" />
 
 ## What's New in 1.0.0.1
 
