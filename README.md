@@ -1,10 +1,11 @@
 # MTR-Dynmap Bridge
-
-<img width="1911" height="837" alt="Screenshot_5" src="https://github.com/user-attachments/assets/2f74f293-d40a-44be-b1c6-6393e85d37b9" />
+<img width="100" height="100" alt="MTR-Dynmap-Bridge-1 0 0 0" src="https://github.com/user-attachments/assets/1bf25f7e-1603-4609-805b-0b7992b207e7" />
 
 MTR-Dynmap Bridge is a lightweight bridge between Minecraft Transit Railway (MTR) and Dynmap.
 
 The plugin automatically synchronizes MTR stations and depots with Dynmap and reliably detects the server worlds without hardcoded world names.
+
+<img width="1911" height="837" alt="Screenshot_5" src="https://github.com/user-attachments/assets/2f74f293-d40a-44be-b1c6-6393e85d37b9" />
 
 ## Features
 
