@@ -23,7 +23,7 @@ The plugin automatically synchronizes MTR stations and depots with Dynmap and re
 - **Youer** or another compatible hybrid server that supports **NeoForge mods together with the Bukkit, Spigot, and Paper APIs**
 - MTR 4.1.0-beta.2
 - Dynmap 3.7-beta8
-- Java 17+
+- Java 21+
 
 The plugin was tested on Minecraft 1.21.1 / 1.21.4.
 
@@ -147,7 +147,7 @@ The plugin preserves existing world mappings.
 
 ## Building
 
-This project uses Gradle.
+This project uses Gradle and Java 21.
 
 To build the plugin locally:
 
@@ -161,7 +161,7 @@ The resulting JAR will be created in:
 build/libs/
 ```
 
-The GitHub Actions workflow can also build the plugin automatically when changes are pushed to the repository.
+The GitHub Actions workflow builds the plugin automatically on pushes and pull requests to `main`, and the resulting JAR is uploaded as a workflow artifact.
 
 ## What's New in Version 1.0.0.1
 

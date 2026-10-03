@@ -16,7 +16,7 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -28,9 +28,4 @@ processResources {
 
 jar {
     archiveBaseName = 'MTR-Dynmap-Bridge'
-}
-
-// Keep source encoding deterministic across local builds and CI.
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
 }
