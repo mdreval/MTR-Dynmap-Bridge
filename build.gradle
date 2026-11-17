@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'com.igrobar'
-version = '1.0.0.2'
+version = '1.0.0.3'
 
 // No toolchain: any installed JDK 21 or newer can build the plugin.
 // The bytecode still targets Java 21 (options.release below), so the jar runs on Java 21 servers.

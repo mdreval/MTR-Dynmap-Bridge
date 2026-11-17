@@ -174,6 +174,11 @@ select, input[type="search"] {
 .line-list .line-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line-list .muted { font-size: 12px; white-space: nowrap; }
 .line-swatch { flex: none; width: 16px; height: 6px; border-radius: 3px; }
+.merge-lines { display: flex; align-items: center; gap: 6px; margin-top: 6px; cursor: pointer; font-size: 13px; }
+.line-list li.line-direction { padding-left: 30px; font-size: 12px; }
+.line-expand { flex: none; width: 16px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 11px; cursor: pointer; transition: transform 0.15s; }
+.line-expand:hover { color: inherit; }
+.line-expand.open { transform: rotate(90deg); }
 .muted { color: var(--muted); }
 
 /* ---------- scrollbars in the page style ---------- */
@@ -241,6 +246,14 @@ select, input[type="search"] {
 .chip:hover { background: #222a36; }
 .chip i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .popup-trains li:hover { background: #222a36; }
+/* Directions of the lines at a station: one scroll area for all of them. */
+.popup-directions { max-height: 320px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #3a4455 transparent; }
+.popup-directions .popup-trains { max-height: none; overflow: visible; margin: 0 0 2px; }
+.popup-directions .popup-none { padding: 0 6px 4px 22px; }
+.popup-direction { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 2px 6px; border-radius: 6px; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.popup-direction[data-route] { cursor: pointer; }
+.popup-direction[data-route]:hover { background: #222a36; }
+.popup-direction i { flex: none; width: 14px; height: 5px; border-radius: 3px; }
 
 /* ---------- bottom badges ---------- */
 

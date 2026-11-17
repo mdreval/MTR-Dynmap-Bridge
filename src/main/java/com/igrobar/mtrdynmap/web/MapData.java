@@ -20,8 +20,15 @@ public final class MapData {
     public record TrackPiece(String dimension, String type, String[] routes, double[] points) {
     }
 
-    /** A route (line) for colours, the legend and station windows. */
-    public record RouteInfo(String dimension, String id, String name, String number, String color, String mode) {
+    /**
+     * A route (one direction of a line) for colours, the line list and station windows.
+     *
+     * @param from     first station, empty if unknown
+     * @param to       last station, empty if unknown
+     * @param circular "clockwise", "anticlockwise" or empty
+     */
+    public record RouteInfo(String dimension, String id, String name, String number, String color, String mode,
+                            String from, String to, String circular) {
     }
 
     /**
@@ -79,6 +86,9 @@ public final class MapData {
                     .field("num", route.number())
                     .field("c", route.color())
                     .field("m", route.mode())
+                    .field("f", route.from())
+                    .field("t", route.to())
+                    .field("cs", route.circular())
                     .endObject();
         }
         json.endArray();

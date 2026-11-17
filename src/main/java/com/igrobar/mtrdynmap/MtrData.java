@@ -28,7 +28,15 @@ final class MtrData {
                 long centerX, long centerY, long centerZ, List<Long> routeIds) {
     }
 
-    record Route(long id, String name, String number, int color, String mode, boolean hidden) {
+    /**
+     * A route: one direction of a line.
+     *
+     * @param from     name of the first station, empty if unknown
+     * @param to       name of the last station, empty if unknown
+     * @param circular "clockwise", "anticlockwise" or empty for a route that is not circular
+     */
+    record Route(long id, String name, String number, int color, String mode, boolean hidden,
+                 String from, String to, String circular) {
     }
 
     /**

@@ -1,5 +1,5 @@
 [CENTER][SIZE=6][B]📖 MTR-Dynmap Bridge — Documentation[/B][/SIZE]
-[I]Version 1.0.0.2 · Installation, configuration, commands and troubleshooting[/I][/CENTER]
+[I]Version 1.0.0.3 · Installation, configuration, commands and troubleshooting[/I][/CENTER]
 
 [COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
 
@@ -8,7 +8,7 @@
 [*]Set up [B]Youer[/B] or another hybrid server that runs NeoForge mods together with the Bukkit/Spigot/Paper APIs (Minecraft 1.21.1 / 1.21.4).
 [*]Install [B]MTR 4.1.0-beta.2[/B] (Minecraft Transit Railway) as a mod.
 [*][I]Optional:[/I] install [B]Dynmap[/B] (3.7-beta8 tested) if you want the Dynmap markers. The plugin works without Dynmap.
-[*]Drop [B]MTR-Dynmap-Bridge-1.0.0.2.jar[/B] into the server's [B]plugins[/B] folder. [B]When updating, delete the old MTR-Dynmap-Bridge jar first[/B] — keep plugins/MTR-Dynmap-Bridge/config.yml.
+[*]Drop [B]MTR-Dynmap-Bridge-1.0.0.3.jar[/B] into the server's [B]plugins[/B] folder. [B]When updating, delete the old MTR-Dynmap-Bridge jar first[/B] — keep plugins/MTR-Dynmap-Bridge/config.yml.
 [*]Open TCP port [B]25970[/B] in your firewall. On a hosting panel (Pterodactyl etc.) add an extra port allocation and use that number as [B]web-map.port[/B].
 [*]Start or restart the server. The console should show:
 [CODE]
@@ -247,6 +247,13 @@ Restart the server after changing language, then reload the page with Ctrl + F5.
 [COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
 
 [SIZE=5][B]★ Version History[/B][/SIZE]
+
+[SIZE=4][B]What's New 1.0.0.3[/B][/SIZE]
+[LIST]
+[*][B]Merge directions[/B] in the lines list: the two routes of a line (there and back) are one line; highlight the whole line or a single direction. Circular lines show clockwise / anticlockwise.
+[*][B]Station window by direction[/B]: vehicles at the station and on their way, split by line and direction.
+[*]The first and last station of every route and its circular state are read from MTR.
+[/LIST]
 
 [SIZE=4][B]What's New 1.0.0.2[/B][/SIZE]
 [LIST]

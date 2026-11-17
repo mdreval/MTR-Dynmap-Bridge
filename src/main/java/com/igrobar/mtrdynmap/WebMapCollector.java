@@ -91,7 +91,8 @@ final class WebMapCollector {
                 String name = displayName(route.name());
                 routes.add(new MapData.RouteInfo(network.dimension(), Long.toString(route.id()),
                         name.isEmpty() ? this.plugin.lang().get("unnamed-route") : name,
-                        displayName(route.number()), color(route.color()), route.mode()));
+                        displayName(route.number()), color(route.color()), route.mode(),
+                        displayName(route.from()), displayName(route.to()), route.circular()));
             }
             for (MtrData.RailRef rail : network.rails()) {
                 Shape shape = this.shapes.get(rail.rail());

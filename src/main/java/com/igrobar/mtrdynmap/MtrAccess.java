@@ -232,13 +232,17 @@ final class MtrAccess {
         // Routes
         List<MtrData.Route> routes = new ArrayList<>();
         for (Object route : snapshot(Reflect.fieldValue(simulator, "routes"))) {
+            List<Object> stops = routeStops(route);
             routes.add(new MtrData.Route(
                     longValue(Reflect.call(route, "getId")),
                     text(Reflect.optionalCall(route, "getName")),
                     text(Reflect.optionalCall(route, "getRouteNumber")),
                     intValue(Reflect.optionalCall(route, "getColor")),
                     mode(Reflect.optionalCall(route, "getTransportMode")),
-                    Boolean.TRUE.equals(Reflect.optionalCall(route, "getHidden"))));
+                    Boolean.TRUE.equals(Reflect.optionalCall(route, "getHidden")),
+                    stops.isEmpty() ? "" : stopName(stops.get(0)),
+                    stops.isEmpty() ? "" : stopName(stops.get(stops.size() - 1)),
+                    circular(Reflect.optionalCall(route, "getCircularState"))));
         }
 
         // Routes serving every station (through its platforms)
@@ -293,6 +297,39 @@ final class MtrAccess {
 
         return new MtrData.Network(raw, dimensionId(raw), List.copyOf(stations), List.copyOf(depots),
                 List.copyOf(routes), List.copyOf(rails), signature);
+    }
+
+    /** The stops of a route in order (RoutePlatformData objects). */
+    private static List<Object> routeStops(Object route) {
+        Object stops = Reflect.optionalCall(route, "getRoutePlatforms");
+        if (stops == null) {
+            try {
+                stops = Reflect.fieldValue(route, "routePlatformData");
+            } catch (Throwable ignored) {
+                return List.of();
+            }
+        }
+        return snapshot(stops);
+    }
+
+    /** Name of the station of one route stop, or empty if the platform is not inside a station. */
+    private static String stopName(Object stop) {
+        try {
+            Object platform = Reflect.fieldValue(stop, "platform");
+            if (platform == null) {
+                platform = Reflect.optionalCall(stop, "getPlatform");
+            }
+            Object station = Reflect.fieldValue(platform, "area");
+            return text(Reflect.optionalCall(station, "getName"));
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** MTR CircularState → "clockwise", "anticlockwise" or empty (not circular). */
+    private static String circular(Object state) {
+        String value = state == null ? "" : state.toString().toLowerCase(Locale.ROOT);
+        return value.equals("clockwise") || value.equals("anticlockwise") ? value : "";
     }
 
     private static void collectDepotPath(Object depot, List<Long> depotRouteIds, Map<Object, Set<Long>> railRoutes) {

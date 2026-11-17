@@ -36,6 +36,11 @@
       modeToggle_airplane: "✈️ Airplanes",
       lines: "Lines",
       lineHint: "Click to highlight this line, click again to show all",
+      mergeLines: "Merge directions",
+      directionsHint: "Show / hide the directions of this line",
+      directions: "Directions:",
+      clockwise: "clockwise",
+      anticlockwise: "anticlockwise",
       trains: "Vehicles",
       search: "Search a line, station or destination",
       openDynmap: "Open Dynmap",
@@ -108,6 +113,11 @@
       modeToggle_airplane: "✈️ Самолёты",
       lines: "Линии",
       lineHint: "Нажми, чтобы выделить линию; нажми ещё раз, чтобы показать все",
+      mergeLines: "Объединять направления",
+      directionsHint: "Показать / скрыть направления линии",
+      directions: "Направления:",
+      clockwise: "по часовой",
+      anticlockwise: "против часовой",
       trains: "Транспорт",
       search: "Поиск линии, станции или направления",
       openDynmap: "Открыть Dynmap",
@@ -203,6 +213,7 @@
     config: { dimensions: {} },
     network: { tracks: [], routes: [] },
     routes: new Map(), // route id → route
+    lines: new Map(), // line key → routes of that line (both directions)
     stations: [],
     depots: [],
     trains: new Map(),
@@ -212,7 +223,9 @@
     dim: null,
     follow: null,
     openPopup: null,
-    selectedRoute: null,
+    selected: null, // highlighted route id or line key
+    selection: null, // ids of the highlighted routes, or null
+    expandedLines: new Set(), // line keys whose directions are shown in the list
     fittedOnce: false,
     animating: false,
   };
@@ -307,7 +320,8 @@
 
   function trackColor(track, style) {
     if (!$("layer-line-colors").checked || !track.r) return style.color;
-    if (state.selectedRoute && track.r.includes(state.selectedRoute)) return state.routes.get(state.selectedRoute)?.c || style.color;
+    const selected = state.selection && track.r.find((id) => state.selection.has(id));
+    if (selected) return state.routes.get(selected)?.c || style.color;
     for (const id of track.r) {
       const route = state.routes.get(id);
       if (route) return route.c;
@@ -325,7 +339,7 @@
       const style = TRACK_STYLES[track.t] || DEFAULT_TRACK;
       kinds.add(track.t);
       const color = trackColor(track, style);
-      const faded = state.selectedRoute && !(track.r && track.r.includes(state.selectedRoute));
+      const faded = state.selection !== null && !(track.r && track.r.some((id) => state.selection.has(id)));
       const key = `${track.t}|${color}|${faded ? 1 : 0}`;
       if (!groups.has(key)) groups.set(key, { style, color, faded, lines: [] });
       groups.get(key).lines.push(trackLatLngs(track.p));
@@ -363,12 +377,89 @@
 
   // ------------------------------------------------------------------ lines (routes)
 
+  const MERGE_STORAGE_KEY = "mtr-dynmap-bridge.merge-lines";
+  /** Show both directions of a line as one line (remembered in this browser, on by default). */
+  let mergeLines = loadMergeLines();
+
+  function loadMergeLines() {
+    try {
+      return localStorage.getItem(MERGE_STORAGE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  }
+
+  function saveMergeLines() {
+    try {
+      localStorage.setItem(MERGE_STORAGE_KEY, mergeLines ? "1" : "0");
+    } catch {
+      // storage unavailable — the choice simply is not remembered
+    }
+  }
+
   function routesOfDimension() {
     return state.network.routes.filter((r) => r.d === state.dim && modeVisible(r.m));
   }
 
   function routeTitle(route) {
     return route.num && route.num !== route.n ? `${route.num} · ${route.n}` : route.n;
+  }
+
+  /** Routes with the same number (or, without a number, the same name and colour) are one line. */
+  function lineKey(route) {
+    const base = route.num ? `#${route.num}` : `${route.n}|${route.c}`;
+    return `line:${route.d}|${route.m || "train"}|${base.toLowerCase()}`;
+  }
+
+  function groupLines(routes) {
+    const lines = new Map();
+    for (const route of routes) {
+      const key = lineKey(route);
+      if (!lines.has(key)) lines.set(key, []);
+      lines.get(key).push(route);
+    }
+    return lines;
+  }
+
+  /** What selecting a line highlights: the whole line, or the route itself if the line has one direction only. */
+  function lineSelectionKey(route) {
+    const key = lineKey(route);
+    return (state.lines.get(key)?.length || 0) > 1 ? key : route.id;
+  }
+
+  function lineTitle(routes) {
+    const first = routes[0];
+    return routes.every((r) => r.n === first.n) ? routeTitle(first) : first.num || first.n;
+  }
+
+  /** One direction of a line: "A1 → A2", "clockwise", or the route name if the stations are unknown. */
+  function directionTitle(route) {
+    if (route.cs) return t(route.cs);
+    if (route.f && route.t) return `${route.f} → ${route.t}`;
+    return route.t ? `→ ${route.t}` : route.n;
+  }
+
+  /** Route ids behind a route id or a line key, or null if nothing matches (any more). */
+  function routeIdsOf(key) {
+    if (!key) return null;
+    if (key.startsWith("line:")) {
+      const routes = state.lines.get(key);
+      return routes?.length ? new Set(routes.map((r) => r.id)) : null;
+    }
+    return state.routes.has(key) ? new Set([key]) : null;
+  }
+
+  function updateSelection() {
+    state.selection = routeIdsOf(state.selected);
+    if (!state.selection) state.selected = null;
+  }
+
+  function lineItem(key, color, title, count, extraClass, expander) {
+    const active = state.selected === key ? " active" : "";
+    return `<li data-route="${esc(key)}" class="${extraClass}${active}" title="${esc(t("lineHint"))}">
+          ${expander}<i class="line-swatch" style="background:${esc(color)}"></i>
+          <span class="line-name">${esc(title)}</span>
+          <span class="muted">${count ? esc(t("vehiclesOnLine", count)) : ""}</span></li>`;
   }
 
   function renderLines() {
@@ -378,38 +469,78 @@
       if (train.info.or) counts.set(train.info.r, (counts.get(train.info.r) || 0) + 1);
     }
     $("lines-box").hidden = routes.length === 0;
-    $("line-count").textContent = routes.length;
-    $("line-list").innerHTML = routes
-      .map((route) => {
-        const active = state.selectedRoute === route.id ? " active" : "";
-        const count = counts.get(route.id) || 0;
-        return `<li data-route="${esc(route.id)}" class="${active}" title="${esc(t("lineHint"))}">
-          <i class="line-swatch" style="background:${esc(route.c)}"></i>
-          <span class="line-name">${esc(routeTitle(route))}</span>
-          <span class="muted">${count ? esc(t("vehiclesOnLine", count)) : ""}</span></li>`;
+    if (!mergeLines) {
+      $("line-count").textContent = routes.length;
+      $("line-list").innerHTML = routes.map((r) => lineItem(r.id, r.c, routeTitle(r), counts.get(r.id) || 0, "", "")).join("");
+      return;
+    }
+    const order = collator();
+    const lines = [...groupLines(routes).entries()]
+      .map(([key, members]) => ({ key, routes: members, title: lineTitle(members) }))
+      .sort((a, b) => order.compare(a.title, b.title));
+    $("line-count").textContent = lines.length;
+    $("line-list").innerHTML = lines
+      .map((line) => {
+        if (line.routes.length === 1) {
+          const route = line.routes[0];
+          return lineItem(route.id, route.c, line.title, counts.get(route.id) || 0, "", "");
+        }
+        const open = state.expandedLines.has(line.key);
+        const total = line.routes.reduce((sum, r) => sum + (counts.get(r.id) || 0), 0);
+        const expander = `<button type="button" class="line-expand${open ? " open" : ""}" data-expand="${esc(line.key)}" title="${esc(t("directionsHint"))}">▸</button>`;
+        let html = lineItem(line.key, line.routes[0].c, line.title, total, "line-group", expander);
+        if (open) {
+          html += line.routes
+            .map((r) => ({ route: r, title: directionTitle(r) }))
+            .sort((a, b) => order.compare(a.title, b.title))
+            .map(({ route, title }) => lineItem(route.id, route.c, title, counts.get(route.id) || 0, "line-direction", ""))
+            .join("");
+        }
+        return html;
       })
       .join("");
   }
 
-  $("line-list").addEventListener("click", (event) => {
-    const item = event.target.closest("li[data-route]");
-    if (!item) return;
-    selectRoute(state.selectedRoute === item.dataset.route ? null : item.dataset.route);
+  $("merge-lines").addEventListener("change", (event) => {
+    mergeLines = event.target.checked;
+    saveMergeLines();
+    if (!mergeLines && state.selected?.startsWith("line:")) selectRoute(null);
+    else renderLines();
+    refreshOpenPopup();
   });
 
-  function selectRoute(id) {
-    state.selectedRoute = id;
+  $("line-list").addEventListener("click", (event) => {
+    const expand = event.target.closest("[data-expand]");
+    if (expand) {
+      const key = expand.dataset.expand;
+      if (!state.expandedLines.delete(key)) state.expandedLines.add(key);
+      renderLines();
+      return;
+    }
+    const item = event.target.closest("li[data-route]");
+    if (!item) return;
+    selectRoute(state.selected === item.dataset.route ? null : item.dataset.route);
+  });
+
+  /** Highlights a route or a whole line (null shows everything again). */
+  function selectRoute(key) {
+    state.selected = key;
+    updateSelection();
+    // Open the line in the list so the highlighted line or direction is visible there.
+    const route = state.routes.get(state.selected);
+    const line = route ? lineKey(route) : state.selected;
+    if (line?.startsWith("line:") && state.lines.get(line)?.length > 1) state.expandedLines.add(line);
     renderTracks();
     renderLines();
     redrawAllTrains();
     renderTrainList();
-    if (id) fitRoute(id);
+    if (state.selection) fitRoutes(state.selection);
   }
 
-  function fitRoute(id) {
+  function fitRoutes(ids) {
     const points = [];
     for (const track of state.network.tracks) {
-      if (track.d === state.dim && track.r && track.r.includes(id)) {
+      if (track.d === state.dim && track.r && track.r.some((id) => ids.has(id))) {
         points.push([track.p[1], track.p[0]], [track.p[track.p.length - 1], track.p[track.p.length - 2]]);
       }
     }
@@ -518,10 +649,14 @@
   function routeChips(ids) {
     const routes = (ids || []).map((id) => state.routes.get(id)).filter(Boolean);
     if (!routes.length) return `<div class="muted popup-none">${esc(t("none"))}</div>`;
+    // One chip per line: merged lines select the whole line, otherwise each chip selects its route.
     const unique = new Map();
-    for (const route of routes) unique.set(`${route.n}|${route.c}`, route);
+    for (const route of routes) {
+      if (mergeLines) unique.set(lineKey(route), { key: lineSelectionKey(route), route, title: lineTitle(state.lines.get(lineKey(route)) || [route]) });
+      else unique.set(`${route.n}|${route.c}`, { key: route.id, route, title: routeTitle(route) });
+    }
     return `<div class="chips">${[...unique.values()]
-      .map((route) => `<span class="chip" data-route="${esc(route.id)}" title="${esc(t("lineHint"))}"><i style="background:${esc(route.c)}"></i>${esc(routeTitle(route))}</span>`)
+      .map(({ key, route, title }) => `<span class="chip" data-route="${esc(key)}" title="${esc(t("lineHint"))}"><i style="background:${esc(route.c)}"></i>${esc(title)}</span>`)
       .join("")}</div>`;
   }
 
@@ -552,11 +687,46 @@
     const order = collator();
     here.sort((a, b) => order.compare(a.sort, b.sort));
     coming.sort((a, b) => a.sort - b.sort);
-    return `<h3>${esc(station.name)}</h3>
+    const head = `<h3>${esc(station.name)}</h3>
       <div class="muted">X ${Math.round(station.p[0])}, Z ${Math.round(station.p[2])}</div>
-      <div class="popup-section">${esc(t("linesHere"))}</div>${routeChips(station.r)}
+      <div class="popup-section">${esc(t("linesHere"))}</div>${routeChips(station.r)}`;
+    if (mergeLines) return `${head}<div class="popup-section">${esc(t("directions"))}</div>${directionItems(station, here, coming)}`;
+    return `${head}
       <div class="popup-section">${esc(t("atStation"))}</div>${trainItems(here)}
       <div class="popup-section">${esc(t("comingHere"))}</div>${trainItems(coming)}`;
+  }
+
+  /** Vehicles of a station split by direction: every route stopping here, its vehicles standing here first. */
+  function directionItems(station, here, coming) {
+    const byRoute = new Map();
+    const add = (id) => byRoute.get(id) || byRoute.set(id, []).get(id);
+    for (const id of station.r || []) {
+      if (modeVisible(state.routes.get(id)?.m)) add(id);
+    }
+    for (const item of [...here, ...coming]) add(item.train.info.r).push(item);
+    if (!byRoute.size) return `<div class="muted popup-none">${esc(t("none"))}</div>`;
+    const order = collator();
+    const groups = [...byRoute.entries()].map(([id, items]) => {
+      const route = state.routes.get(id);
+      const title = route ? directionHeader(route) : trainTitle(items[0].train.info);
+      return { id, route, title, items, sort: route ? `${lineTitle(state.lines.get(lineKey(route)) || [route])}\u0000${title}` : title };
+    });
+    groups.sort((a, b) => order.compare(a.sort, b.sort));
+    return `<div class="popup-directions">${groups
+      .map(({ route, title, items }) => {
+        const header = route
+          ? `<div class="popup-direction" data-route="${esc(route.id)}" title="${esc(t("lineHint"))}"><i style="background:${esc(route.c)}"></i>${esc(title)}</div>`
+          : `<div class="popup-direction"><i style="background:${esc(DEFAULT_VEHICLE_COLOR)}"></i>${esc(title)}</div>`;
+        return header + trainItems(items);
+      })
+      .join("")}</div>`;
+  }
+
+  /** "M10 → A2" (towards the last station), "M10 · clockwise", or the route title. */
+  function directionHeader(route) {
+    const short = route.num || route.n;
+    if (route.cs) return `${short} · ${t(route.cs)}`;
+    return route.t ? `${short} → ${route.t}` : routeTitle(route);
   }
 
   function depotPopup(depot) {
@@ -745,7 +915,7 @@
   }
 
   function styleTrain(train) {
-    const faded = state.selectedRoute && train.info.r !== state.selectedRoute;
+    const faded = state.selection !== null && !state.selection.has(train.info.r);
     train.line.setStyle({ color: vehicleColor(train.info), opacity: faded ? 0.3 : 1 });
     train.casing.setStyle({ opacity: faded ? outline().opacity * 0.2 : outline().opacity });
     train.head.setStyle({ opacity: faded ? 0.3 : 1, fillOpacity: faded ? 0.3 : 1 });
@@ -886,7 +1056,7 @@
     const order = collator();
     const trains = all
       .filter((train) => trainDimension(train) === state.dim && modeVisible(train.info.m))
-      .filter((train) => !state.selectedRoute || train.info.r === state.selectedRoute)
+      .filter((train) => !state.selection || state.selection.has(train.info.r))
       .sort((a, b) => order.compare(trainTitle(a.info), trainTitle(b.info)) || order.compare(a.info.station || "", b.info.station || ""));
     const elsewhere = all.filter((train) => trainDimension(train) !== state.dim && modeVisible(train.info.m)).length;
     $("train-count").textContent = trains.length;
@@ -975,7 +1145,8 @@
       return;
     }
     state.dim = dim;
-    state.selectedRoute = null;
+    state.selected = null;
+    state.selection = null;
     updateDimensions();
     $("dimension").value = dim;
     renderTracks();
@@ -1078,7 +1249,10 @@
     if (event.target.checked) hiddenModes.delete(mode);
     else hiddenModes.add(mode);
     saveHiddenModes();
-    if (state.selectedRoute && !modeVisible(state.routes.get(state.selectedRoute)?.m)) state.selectedRoute = null;
+    if (state.selection && ![...state.selection].some((id) => modeVisible(state.routes.get(id)?.m))) {
+      state.selected = null;
+      state.selection = null;
+    }
     if (state.follow && !modeVisible(state.trains.get(state.follow)?.info.m)) stopFollow();
     renderTracks();
     renderLines();
@@ -1098,7 +1272,8 @@
   function onNetwork(data) {
     state.network = { tracks: data.tracks || [], routes: data.routes || [] };
     state.routes = new Map(state.network.routes.map((r) => [r.id, r]));
-    if (state.selectedRoute && !state.routes.has(state.selectedRoute)) state.selectedRoute = null;
+    state.lines = groupLines(state.network.routes);
+    updateSelection();
     state.networkDims = new Set(state.network.tracks.map((tr) => tr.d));
     renderModeToggles();
     updateDimensions();
@@ -1152,6 +1327,7 @@
     $("layer-areas").checked = state.config.stationAreas !== false;
     $("layer-depots").checked = state.config.depots !== false;
     $("layer-line-colors").checked = state.config.lineColors !== false;
+    $("merge-lines").checked = mergeLines;
     if (state.config.dynmapUrl) {
       $("dynmap-link").href = state.config.dynmapUrl;
       $("dynmap-link").hidden = false;

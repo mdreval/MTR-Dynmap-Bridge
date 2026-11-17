@@ -6,7 +6,7 @@
 
 **Live web map of Minecraft Transit Railway vehicles, plus MTR stations and depots on Dynmap**
 
-[![Version](https://img.shields.io/badge/version-1.0.0.2-e53935?style=for-the-badge)](RELEASE_NOTES.md) [![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1%20%2F%201.21.4-62b47a?style=for-the-badge&logo=minecraft&logoColor=white)](#requirements) [![Java](https://img.shields.io/badge/Java-21%2B-5382a1?style=for-the-badge&logo=openjdk&logoColor=white)](#requirements) [![MTR](https://img.shields.io/badge/MTR-4.1.0--beta.2-1e88e5?style=for-the-badge)](https://modrinth.com/mod/minecraft-transit-railway) [![Dynmap](https://img.shields.io/badge/Dynmap-optional-6c7a89?style=for-the-badge)](#dynmap-markers)
+[![Version](https://img.shields.io/badge/version-1.0.0.3-e53935?style=for-the-badge)](RELEASE_NOTES.md) [![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1%20%2F%201.21.4-62b47a?style=for-the-badge&logo=minecraft&logoColor=white)](#requirements) [![Java](https://img.shields.io/badge/Java-21%2B-5382a1?style=for-the-badge&logo=openjdk&logoColor=white)](#requirements) [![MTR](https://img.shields.io/badge/MTR-4.1.0--beta.2-1e88e5?style=for-the-badge)](https://modrinth.com/mod/minecraft-transit-railway) [![Dynmap](https://img.shields.io/badge/Dynmap-optional-6c7a89?style=for-the-badge)](#dynmap-markers)
 
 [Features](#features) • [Web map](#web-map) • [Installation](#installation) • [Configuration](#configuration) • [Commands](#commands) • [Troubleshooting](#troubleshooting) • [Version history](#version-history)
 
@@ -31,11 +31,12 @@
 ### 🗺️ Live web map
 - Every MTR rail, **straight and curved**, in its real place
 - Rails **coloured like your MTR lines**, platforms and depot sidings marked
-- Stations with their **areas**, depots, line list with highlighting
+- Stations with their **areas**, depots
+- **Lines list** with highlighting — both directions of a line shown as **one line**
 - **Smoothly moving vehicles** — trains, boats, cable cars, airplanes
 - Vehicle list with **search** and **"follow this vehicle"**
 - **Switches per transport type** — hide trains, boats, cable cars or airplanes with one tick
-- Station window: lines, vehicles **at the station** and **heading there**
+- Station window: vehicles **at the station** and **heading there**, split by direction
 - English 🇬🇧 / Russian 🇷🇺 interface
 
 </td>
@@ -106,9 +107,11 @@ Open `http://<server-ip>:25970/` in any browser (or type `/mtrmap` in game). No 
 | Coloured rectangle | Station area as drawn in the MTR dashboard |
 | Dashed rectangle | Depot area |
 
-<img src="docs/images/web-map-panel.jpg" alt="Side panel: layers and transport type switches" width="230" align="right" />
+<img src="docs/images/web-map-panel.jpg" alt="Side panel: layers, transport type switches and the lines list" width="230" align="right" />
 
-**In the side panel:** switch dimensions, toggle layers and labels, switch transport types on and off (🚆 trains, ⛴️ boats, 🚡 cable cars, ✈️ airplanes — the block appears when your network has more than one type, and each browser remembers its choice), click a line to highlight it, search vehicles by line, station or destination, click a vehicle to follow it. Click a station to see its lines and which vehicles are there or on their way. The page address keeps the current view, so a link can be shared.
+**In the side panel:** switch dimensions, toggle layers and labels, switch transport types on and off (🚆 trains, ⛴️ boats, 🚡 cable cars, ✈️ airplanes — the block appears when your network has more than one type, and each browser remembers its choice), click a line to highlight it, search vehicles by line, station or destination, click a vehicle to follow it. Click a station to see its lines and which vehicles are there or on their way.
+
+**Lines and directions:** in MTR a line is usually two routes — there and back. With **Merge directions** ticked (the default, remembered by each browser) routes with the same number are one line in the list; routes without a number are matched by name and colour. Click the line to highlight it in both directions, or open it with ▸ and click one direction (`A1 → A2`, or clockwise / anticlockwise for circular lines). The station window then shows the vehicles of every direction separately. Untick it to list every route on its own. The page address keeps the current view, so a link can be shared.
 
 > [!TIP]
 > Visitors can switch the website language with `?lang=en` or `?lang=ru` at the end of the address, e.g. `http://example.com:25970/?lang=ru`.
@@ -185,7 +188,7 @@ A plain Bukkit/Paper/Spigot server without the MTR mod may load the plugin, but 
 
 ## ⚙️ Installation
 
-1. **Download** `MTR-Dynmap-Bridge-1.0.0.2.jar` from the [Releases](../../releases) page.
+1. **Download** `MTR-Dynmap-Bridge-1.0.0.3.jar` from the [Releases](../../releases) page.
 2. **Install** — put the jar into the server's `plugins` folder. Remove older versions of the plugin first.
 3. **Open the port** — allow TCP port **25970** in your firewall. On a hosting panel (Pterodactyl, etc.) add an extra port allocation and use that number as `web-map.port`.
 4. **Start the server.** The plugin creates `plugins/MTR-Dynmap-Bridge/` with `config.yml` and the blacklist files. The console should show:
@@ -200,7 +203,7 @@ A plain Bukkit/Paper/Spigot server without the MTR mod may load the plugin, but 
 6. **Adjust** `config.yml` (language, port, title, update intervals…) and restart the server.
 
 > [!NOTE]
-> Updating from 1.0.0.1? Keep your `config.yml`: the new settings are appended to it automatically, with comments, and your `worlds:` mappings stay as they are. Existing Dynmap markers are kept and updated.
+> Updating from 1.0.0.2? Just replace the jar — `config.yml` does not change. Updating from 1.0.0.1? Keep your `config.yml`: the new settings are appended to it automatically, with comments, and your `worlds:` mappings stay as they are. Existing Dynmap markers are kept and updated.
 
 <details>
 <summary><b>🔨 Building from source</b></summary>
@@ -211,7 +214,7 @@ A plain Bukkit/Paper/Spigot server without the MTR mod may load the plugin, but 
 ./gradlew clean build        # Windows: .\gradlew.bat clean build
 ```
 
-The jar appears in `build/libs/`. Any JDK 21 or newer works; the bytecode targets Java 21. The version is set once in `build.gradle` (`version = '1.0.0.2'`) and written into `plugin.yml` automatically.
+The jar appears in `build/libs/`. Any JDK 21 or newer works; the bytecode targets Java 21. The version is set once in `build.gradle` (`version = '1.0.0.3'`) and written into `plugin.yml` automatically.
 
 </details>
 
@@ -530,7 +533,15 @@ Restart the server after changing `language`, then reload the page with <kbd>Ctr
 
 ## 📦 Version History
 
-### 🚀 Version 1.0.0.2
+### 🚀 Version 1.0.0.3
+- **Lines with both directions:** the new **Merge directions** tick in the lines list shows the two routes of a line (there and back) as one line. Click the line to highlight it in both directions, or open it and highlight one direction. Circular lines show clockwise / anticlockwise.
+- **Station window by direction:** vehicles at the station and on their way, split by line and direction.
+- The plugin now reads the first and last station of every route and whether it is circular.
+
+<details>
+<summary><b>Older versions</b></summary>
+
+### Version 1.0.0.2
 - **Live web map** built into the plugin: MTR rails with curves in the colours of your lines, platforms, depot sidings, station areas, depots and smoothly moving vehicles (trains, boats, cable cars, airplanes).
 - **Lines list** with highlighting, **vehicle list** with search and "follow", **station window** with lines, vehicles at the station and vehicles heading there.
 - **Transport type switches** on the website: trains, boats, cable cars and airplanes can each be hidden with a tick.
@@ -540,9 +551,6 @@ Restart the server after changing `language`, then reload the page with <kbd>Ctr
 - New commands `/mtrmap`, `/mtrstations`, `/mtrroutes`; `stations.txt` / `routes.txt` exports; station and route blacklists.
 - Existing `config.yml` files get the new settings appended automatically; `worlds:` mappings are kept.
 - Quieter console: no more log lines on every synchronization check.
-
-<details>
-<summary><b>Older versions</b></summary>
 
 ### Version 1.0.0.1
 - Fixed Dynmap markers remaining after MTR stations or depots were removed; automatic cleanup of station and depot markers.
