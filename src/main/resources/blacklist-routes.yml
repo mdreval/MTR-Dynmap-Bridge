@@ -1,0 +1,4 @@
+# Add exact names (route name or route number) below, one per line. Changes are picked up automatically.
+# Vehicles, line colours and legend entries of listed routes are hidden on the web map.
+routes:
+  # - Example name

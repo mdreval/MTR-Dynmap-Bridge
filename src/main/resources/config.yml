@@ -1,12 +1,93 @@
-# MTR-Dynmap Bridge 1.0.0.1
-# World mappings are detected automatically from the MTR dimensions on the server.
-# You normally do NOT need to edit this file.
-# On first synchronization, missing mappings are written here automatically.
-# If you have multiple worlds and want to choose a specific one, edit the mapping.
-# Example:
-# worlds:
+# MTR-Dynmap Bridge
+# Changes take effect after restarting the server.
+# When the plugin is updated, new settings are added to the end of this file automatically.
+
+# ==== Language ====
+# Language of the web map and of the plugin messages: "en" (English) or "ru" (Russian).
+language: "en"
+
+# ==== Dynmap markers ====
+# MTR stations and depots as Dynmap markers. Dynmap is optional: without it this section is simply ignored.
+dynmap:
+  # Show MTR stations and depots on Dynmap (default: true).
+  enabled: true
+  # How often the markers are synchronized with MTR, in minutes (default: 60).
+  # The first synchronization runs a few seconds after MTR has started.
+  sync-interval-minutes: 60
+  # Dynmap icon of stations (default: "pin") and depots (default: "building").
+  # Built-in Dynmap icons include: pin, building, bank, tower, temple, house, minecart, truck,
+  # anchor, sign, star, flag icons (redflag, blueflag, greenflag...), default.
+  station-icon: "pin"
+  depot-icon: "building"
+
+# ==== Live web map ====
+# A separate lightweight website with the MTR network, stations and moving vehicles
+# (trains, boats, cable cars and airplanes). Open http://<server-ip>:<port>/ in a browser.
+# Data is read on MTR's own simulation thread and the website runs in separate threads,
+# so the Minecraft server is not slowed down.
+web-map:
+  # Turn the web map on/off (default: true).
+  enabled: true
+  # Network address and port of the web map. 0.0.0.0 = all addresses.
+  # Remember to open this port in your firewall / hosting panel.
+  bind-address: "0.0.0.0"
+  port: 25970
+  # Link shown by /mtrmap. Leave empty to build it automatically from the address
+  # the player used to join (e.g. play.example.com) and the port above.
+  # Example: "https://map.example.com/metro/"
+  public-url: ""
+  # Website title. Leave empty for the default title in the selected language.
+  title: ""
+  # How often vehicle positions are sent to the website, in seconds (default: 1, minimum 0.25).
+  # Vehicles move smoothly between updates, so 1-2 seconds looks fine.
+  train-update-interval-seconds: 1
+  # How often stations, routes and rails are re-read from MTR, in seconds (default: 15, minimum 5).
+  # Rail shapes are cached, only new or rebuilt rails are calculated again.
+  network-check-interval-seconds: 15
+  # Maximum number of browser tabs watching the map at the same time (default: 50).
+  max-viewers: 50
+  # Which MTR transport modes to show: TRAIN, BOAT, CABLE_CAR, AIRPLANE (default: all).
+  transport-modes: [TRAIN, BOAT, CABLE_CAR, AIRPLANE]
+  # Colour rails in the colour of the MTR routes that use them (default: true).
+  # Visitors can switch this on the website too.
+  color-lines: true
+  # Show station names on the map by default.
+  show-station-labels: true
+  # Draw the station areas (the rectangles drawn in the MTR dashboard) by default.
+  show-station-areas: true
+  # Show depots on the map by default.
+  show-depots: true
+  # Also show vehicles that are waiting in their depot (not in service) (default: false).
+  show-vehicles-in-depots: false
+  # Thin outline around vehicles, so a train stands out from a rail drawn in the same line colour.
+  vehicle-outline:
+    # Turn the outline on/off (default: true).
+    enabled: true
+    # Outline colour as #RRGGBB (default: "#f4f6fa", almost white).
+    color: "#f4f6fa"
+    # 0.0 = invisible, 1.0 = fully visible (default: 0.7).
+    opacity: 0.7
+    # Outline width in pixels on each side of the vehicle (default: 1.5, from 0.5 to 5).
+    width: 1.5
+  # Dimension opened first.
+  default-dimension: "minecraft:overworld"
+  # Optional link to your Dynmap shown on the website (empty = hidden). Example: "http://example.com:8123/"
+  dynmap-url: ""
+  # Optional link to MTR's own system map (MTR's built-in website, port 8888 by default) (empty = hidden).
+  # Example: "http://example.com:8888/"
+  mtr-map-url: ""
+  # Custom names of dimensions on the website. Vanilla dimensions are already named
+  # in the selected language; add other dimensions or overrides here, for example:
+  #   "minecraft:overworld": "Main world"
+  #   "minecraft:old": "Old world"
+  dimensions: {}
+
+# ==== World mappings ====
+# MTR dimension -> Bukkit/Dynmap world (used for Dynmap markers). Detected automatically:
+# missing mappings are written here on the first synchronization; you normally do NOT need to edit this.
+# If you have several worlds of the same kind, choose the right one here. Example:
 #   minecraft/overworld: Survival
 #   minecraft/the_nether: Survival_nether
 #   minecraft/the_end: Survival_the_end
-# Existing entries are preserved unless the configured world no longer exists.
+# Existing entries are kept unless the configured world no longer exists.
 worlds:

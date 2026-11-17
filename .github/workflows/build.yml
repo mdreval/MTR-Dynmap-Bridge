@@ -39,8 +39,9 @@ jobs:
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MTR-Dynmap-Bridge
+          name: MTR-Dynmap-Bridge-${{ github.ref_name }}
           path: build/libs/*.jar
+          if-no-files-found: error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

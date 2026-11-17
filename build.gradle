@@ -3,7 +3,10 @@ plugins {
 }
 
 group = 'com.igrobar'
-version = '1.0.0.1'
+version = '1.0.0.2'
+
+// No toolchain: any installed JDK 21 or newer can build the plugin.
+// The bytecode still targets Java 21 (options.release below), so the jar runs on Java 21 servers.
 
 repositories {
     mavenCentral()
@@ -11,16 +14,14 @@ repositories {
 }
 
 dependencies {
+    // MTR and Dynmap are used through reflection only, so they are not needed to build the plugin.
     compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-}
-
 processResources {
+    filteringCharset = 'UTF-8'
+    // The Gradle version above is written into plugin.yml, so it only has to be changed in one place.
+    inputs.property 'version', project.version
     filesMatching('plugin.yml') {
         expand(version: project.version)
     }
@@ -28,4 +29,12 @@ processResources {
 
 jar {
     archiveBaseName = 'MTR-Dynmap-Bridge'
+    manifest {
+        attributes('Implementation-Title': 'MTR-Dynmap-Bridge', 'Implementation-Version': project.version)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
 }

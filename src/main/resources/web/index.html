@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MTR Transit Map</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/vendor/leaflet.min.css">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Texts marked with data-i18n are translated by assets/app.js (language from config.yml). -->
+  <aside id="panel">
+    <header class="panel-head">
+      <button id="panel-toggle" class="icon-button" data-i18n-title="togglePanel" title="Collapse / expand" aria-label="Collapse / expand">☰</button>
+      <div class="panel-title">
+        <h1 id="title">MTR Transit Map</h1>
+        <div id="status" class="status status-wait"><span class="dot"></span><span id="status-text" data-i18n="connecting">Connecting…</span></div>
+      </div>
+    </header>
+
+    <div class="panel-body">
+      <label class="field">
+        <span data-i18n="dimension">Dimension</span>
+        <select id="dimension"></select>
+      </label>
+
+      <fieldset class="layers">
+        <legend data-i18n="layers">Layers</legend>
+        <label><input type="checkbox" id="layer-tracks" checked> <span data-i18n="layerTracks">Rails</span></label>
+        <label><input type="checkbox" id="layer-line-colors" checked> <span data-i18n="layerLineColors">Line colours</span></label>
+        <label><input type="checkbox" id="layer-stations" checked> <span data-i18n="layerStations">Stations</span></label>
+        <label><input type="checkbox" id="layer-station-labels" checked> <span data-i18n="layerStationLabels">Station names</span></label>
+        <label><input type="checkbox" id="layer-areas" checked> <span data-i18n="layerAreas">Station areas</span></label>
+        <label><input type="checkbox" id="layer-depots" checked> <span data-i18n="layerDepots">Depots</span></label>
+        <label><input type="checkbox" id="layer-trains" checked> <span data-i18n="layerTrains">Vehicles</span></label>
+        <label><input type="checkbox" id="layer-train-labels" checked> <span data-i18n="layerTrainLabels">Vehicle labels</span></label>
+      </fieldset>
+
+      <fieldset id="modes-box" class="layers modes-box" hidden>
+        <legend data-i18n="modes">Transport types</legend>
+        <div id="modes" class="modes"></div>
+      </fieldset>
+
+      <div id="legend" class="legend"></div>
+
+      <details id="lines-box" class="lines-box" open hidden>
+        <summary><span data-i18n="lines">Lines</span> <span id="line-count" class="count">0</span></summary>
+        <ul id="line-list" class="line-list"></ul>
+      </details>
+
+      <div class="trains-head">
+        <h2><span data-i18n="trains">Vehicles</span> <span id="train-count" class="count">0</span></h2>
+        <input id="train-search" type="search" data-i18n-placeholder="search" placeholder="Search a line, station or destination">
+      </div>
+      <ul id="train-list" class="train-list"></ul>
+
+      <footer class="panel-foot">
+        <span class="foot-links">
+          <a id="mtr-link" href="#" target="_blank" rel="noopener" data-i18n="openMtrMap" hidden>MTR system map</a>
+          <a id="dynmap-link" href="#" target="_blank" rel="noopener" data-i18n="openDynmap" hidden>Open Dynmap</a>
+        </span>
+        <span id="version"></span>
+      </footer>
+    </div>
+  </aside>
+
+  <div id="coords" class="coords">X: — Z: —</div>
+  <div id="follow" class="follow" hidden>
+    <span data-i18n="following">Following:</span> <i id="follow-dot" class="train-dot"></i><b id="follow-name"></b>
+    <span id="follow-state" class="muted"></span>
+    <button id="follow-stop" class="link-button" data-i18n="stop">Stop</button>
+  </div>
+
+  <script src="assets/vendor/leaflet.min.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,274 @@
+[CENTER][SIZE=6][B]📖 MTR-Dynmap Bridge — Documentation[/B][/SIZE]
+[I]Version 1.0.0.2 · Installation, configuration, commands and troubleshooting[/I][/CENTER]
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]⬇️ Installation[/B][/SIZE]
+[LIST=1]
+[*]Set up [B]Youer[/B] or another hybrid server that runs NeoForge mods together with the Bukkit/Spigot/Paper APIs (Minecraft 1.21.1 / 1.21.4).
+[*]Install [B]MTR 4.1.0-beta.2[/B] (Minecraft Transit Railway) as a mod.
+[*][I]Optional:[/I] install [B]Dynmap[/B] (3.7-beta8 tested) if you want the Dynmap markers. The plugin works without Dynmap.
+[*]Drop [B]MTR-Dynmap-Bridge-1.0.0.2.jar[/B] into the server's [B]plugins[/B] folder. [B]When updating, delete the old MTR-Dynmap-Bridge jar first[/B] — keep plugins/MTR-Dynmap-Bridge/config.yml.
+[*]Open TCP port [B]25970[/B] in your firewall. On a hosting panel (Pterodactyl etc.) add an extra port allocation and use that number as [B]web-map.port[/B].
+[*]Start or restart the server. The console should show:
+[CODE]
+[MTR-Dynmap-Bridge] Web map started on port 25970: http://<server-ip>:25970/ (vehicles every 1000 ms).
+[MTR-Dynmap-Bridge] Dynmap markers: on (every 60 min; Dynmap is optional). Waiting for MTR to start...
+[MTR-Dynmap-Bridge] MTR detected; reading stations, routes and vehicles from the MTR simulation.
+[MTR-Dynmap-Bridge] Dynmap: synchronized 42 station/depot marker(s); next sync in 60 min.
+[/CODE]
+Without Dynmap you will see [B]Dynmap plugin not found yet[/B] once instead. That is fine.
+[*]Open [B]http://<server-ip>:25970/[/B] in a browser (or type [B]/mtrmap[/B] in game) and check your Dynmap for the markers.
+[/LIST]
+
+[I]Updating from 1.0.0.1? The new settings are appended to your existing config.yml automatically, with comments. Your worlds mappings and your Dynmap markers are kept.[/I]
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]⚙️ Configuration[/B][/SIZE]
+
+File location: [B]plugins/MTR-Dynmap-Bridge/config.yml[/B]
+Changes take effect after a server restart. Blacklist files are re-read automatically.
+
+[SIZE=4][B]🌍 Language[/B][/SIZE]
+[CODE]
+# Language of the web map and of the plugin messages: "en" (English) or "ru" (Russian).
+language: "en"
+[/CODE]
+Visitors can also switch the website language for themselves by adding [B]?lang=en[/B] or [B]?lang=ru[/B] to the address.
+
+[SIZE=4][B]📍 Dynmap markers[/B][/SIZE]
+[CODE]
+dynmap:
+  # Show MTR stations and depots on Dynmap (default: true).
+  enabled: true
+  # How often the markers are synchronized with MTR, in minutes (default: 60).
+  sync-interval-minutes: 60
+  # Dynmap icons of stations and depots.
+  station-icon: "pin"
+  depot-icon: "building"
+[/CODE]
+If Dynmap is not installed, this part simply waits for it and everything else keeps working.
+
+[SIZE=4][B]🗺️ Live web map[/B][/SIZE]
+[CODE]
+web-map:
+  enabled: true
+  bind-address: "0.0.0.0"
+  port: 25970
+  public-url: ""
+  title: ""
+  train-update-interval-seconds: 1
+  network-check-interval-seconds: 15
+  max-viewers: 50
+  transport-modes: [TRAIN, BOAT, CABLE_CAR, AIRPLANE]
+  color-lines: true
+  show-station-labels: true
+  show-station-areas: true
+  show-depots: true
+  show-vehicles-in-depots: false
+  vehicle-outline:
+    enabled: true
+    color: "#f4f6fa"
+    opacity: 0.7
+    width: 1.5
+  default-dimension: "minecraft:overworld"
+  dynmap-url: ""
+  mtr-map-url: ""
+  dimensions: {}
+[/CODE]
+[LIST]
+[*][B]enabled[/B] — turns the web map on or off (default true).
+[*][B]bind-address[/B] / [B]port[/B] — where the website listens (default 0.0.0.0:25970).
+[*][B]public-url[/B] — the link shown by /mtrmap. Empty = built from the address the player used to join (e.g. play.example.com) and the port.
+[*][B]title[/B] — website title; empty = default title in the selected language.
+[*][B]train-update-interval-seconds[/B] — how often vehicle positions are sent (default 1, minimum 0.25). Vehicles are animated between updates.
+[*][B]network-check-interval-seconds[/B] — how often stations, routes and rails are re-read (default 15, minimum 5).
+[*][B]max-viewers[/B] — maximum number of browser tabs at the same time (default 50).
+[*][B]transport-modes[/B] — which of TRAIN, BOAT, CABLE_CAR, AIRPLANE to show (default: all). This hides a type for everyone; visitors can also hide types for themselves with the [B]Transport types[/B] ticks in the side panel.
+[*][B]color-lines[/B] — rails in the colour of the MTR lines using them (default true; visitors can switch it too).
+[*][B]show-station-labels[/B], [B]show-station-areas[/B], [B]show-depots[/B] — what is visible when the page opens.
+[*][B]show-vehicles-in-depots[/B] — also show vehicles waiting in their depot (default false).
+[*][B]vehicle-outline[/B] — thin outline around vehicles, so they stand out from rails of the same line colour: [B]enabled[/B] (true), [B]color[/B] (#f4f6fa), [B]opacity[/B] (0.0–1.0, default 0.7), [B]width[/B] (pixels on each side, 0.5–5, default 1.5).
+[*][B]default-dimension[/B] — dimension opened first.
+[*][B]dynmap-url[/B] — adds an "Open Dynmap" link to the website.
+[*][B]mtr-map-url[/B] — adds a link to MTR's own system map (MTR's website, port 8888 by default).
+[*][B]dimensions[/B] — custom dimension names, e.g. "minecraft:old": "Old world".
+[/LIST]
+
+[SPOILER="How the web map stays light on the server"]
+[LIST]
+[*]MTR 4 simulates its vehicles outside the Minecraft server thread. The plugin asks MTR for a snapshot exactly the way MTR's own website does ([B]Simulator.run[/B]): the request runs between two MTR ticks and only copies numbers and names.
+[*]Vehicle positions (two points per car) are copied once per second, stations, routes and rail references every 15 seconds.
+[*]Rail shapes are calculated on the plugin's own thread, once per rail, and cached until the rail changes.
+[*]JSON is built and the website is served from separate threads; browsers receive only what changed (Server-Sent Events).
+[*]On a test network with 8 000 rails and 400 stations a snapshot took about 3–5 ms of MTR time every 15 seconds.
+[/LIST]
+[/SPOILER]
+
+[SPOILER="Running the web map behind nginx / a domain"]
+The map uses Server-Sent Events, which must not be buffered:
+[CODE]
+location /metro/ {
+    proxy_pass http://127.0.0.1:25970/;
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+}
+[/CODE]
+Then set [B]web-map.public-url: "https://example.com/metro/"[/B] so /mtrmap shows the right link.
+[/SPOILER]
+
+[SPOILER="Custom website files"]
+Files placed in [B]plugins/MTR-Dynmap-Bridge/web/[/B] replace the built-in ones with the same name — for example index.html, assets/app.css or assets/app.js. Delete them to go back to the built-in look.
+[/SPOILER]
+
+[SIZE=4][B]🎨 Web map legend[/B][/SIZE]
+[CENTER][IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-panel.jpg[/IMG][/CENTER]
+[LIST]
+[*][B]Coloured line[/B] — rail used by an MTR line, in the line's colour.
+[*][B]Grey line[/B] — rail not used by any line.
+[*][B]Thick white line[/B] — platform.
+[*][B]Dashed grey line[/B] — depot siding.
+[*][B]Blue / purple / yellow dashes[/B] — boat routes / cable car / flight paths.
+[*][B]Thick coloured bar with a white dot[/B] — a vehicle in its line's colour; the dot is its front.
+[*][B]Grey vehicle[/B] — not in service right now (going to or from its depot).
+[*][B]Coloured rectangle[/B] — station area; [B]dashed rectangle[/B] — depot area.
+[/LIST]
+
+[SIZE=4][B]🌐 World mapping[/B][/SIZE]
+MTR dimensions are matched to server worlds automatically — no world name is hard-coded. Vanilla dimensions are matched by their world type, custom dimensions by world name. Detected mappings are written to config.yml:
+[CODE]
+worlds:
+  minecraft/overworld: Survival
+  minecraft/the_nether: Survival_nether
+  minecraft/the_end: Survival_the_end
+[/CODE]
+If you have several worlds of the same type, choose the right one here. Existing entries are kept unless the configured world no longer exists. World mappings are used for the Dynmap markers.
+
+[SIZE=4][B]🚫 Blacklists[/B][/SIZE]
+[LIST]
+[*][B]blacklist-stations.yml[/B] — stations and depots hidden on Dynmap [B]and[/B] on the web map.
+[*][B]blacklist-routes.yml[/B] — routes (by name or number) whose vehicles, line colours and list entry are hidden on the web map.
+[/LIST]
+[CODE]
+routes:
+  - "Test Line"
+  - "99"
+[/CODE]
+Names are matched exactly (case-insensitive). MTR names with several languages can be written in full (Central|中環) or as shown on the map (Central / 中環). Changes are picked up automatically.
+
+[SIZE=4][B]📁 File exports[/B][/SIZE]
+[B]stations.txt[/B] and [B]routes.txt[/B] in the plugin folder list all station and route names. They are rewritten whenever the lists change.
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]💻 Commands & Permissions[/B][/SIZE]
+[LIST]
+[*][B]/mtrmap[/B] (alias [B]/transitmap[/B]) — shows a [B]clickable[/B] link to the web map; admins also see how many people are watching. Permission [B]mtrdynmap.map[/B] — everyone by default.
+[*][B]/mtrstations [search][/B] — lists MTR stations with dimension and coordinates. Permission [B]mtrdynmap.admin[/B] — op by default.
+[*][B]/mtrroutes [search][/B] — lists MTR routes with their type and how many vehicles are on the way. Permission [B]mtrdynmap.admin[/B] — op by default.
+[/LIST]
+[B]How /mtrmap builds the link:[/B]
+[LIST=1]
+[*][B]web-map.public-url[/B], if it is set;
+[*]otherwise the address the player used to join — a player who joined play.example.com gets http://play.example.com:25970/;
+[*]otherwise server-ip from server.properties.
+[/LIST]
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]⚑ Dynmap Markers[/B][/SIZE]
+[CENTER][ATTACH]984573[/ATTACH] [ATTACH]984574[/ATTACH][/CENTER]
+[LIST]
+[*]Marker set: [B]MTR[/B] (id mtrbridge).
+[*]Stations: [B]pin[/B] icon, label "Station: <name>".
+[*]Depots: [B]building[/B] icon, label "Depot: <name>".
+[*]If a configured icon does not exist in your Dynmap, the default icon is used.
+[*]Markers use the real world coordinates; when MTR stores a station without height, the surface height is used.
+[/LIST]
+
+[SIZE=4][B]♻️ Marker management[/B][/SIZE]
+[LIST]
+[*]Existing markers are updated (position, label, icon) at every synchronization.
+[*]Markers of deleted stations and depots are removed. Only markers in the MTR marker set are touched — other Dynmap markers are never changed.
+[*]If an MTR dimension does not answer in time, no markers are removed during that synchronization.
+[/LIST]
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]🩺 Troubleshooting[/B][/SIZE]
+
+[SPOILER="The web map does not open"]
+[LIST]
+[*]Check the console for [B]Web map started on port …[/B]. If you see [B]Web map could not start … Is the port already in use?[/B], choose another web-map.port.
+[*]Make sure the port is open in the firewall / hosting panel and that you use the [B]server's public IP[/B], not localhost.
+[*]Check that web-map.enabled is true.
+[/LIST]
+[/SPOILER]
+
+[SPOILER="The map is empty"]
+[LIST]
+[*]Look for [B]MTR detected[/B] in the console. Until MTR has started, the map has nothing to show.
+[*]Select the right dimension in the side panel.
+[*]New rails, stations and routes appear within network-check-interval-seconds (15 s by default).
+[*]Check transport-modes and the blacklists.
+[*]Look for console lines starting with [B]Web map:[/B] or [B]Could not read MTR[/B].
+[/LIST]
+[/SPOILER]
+
+[SPOILER="Rails are grey instead of line colours"]
+[LIST]
+[*]Line colours come from the paths MTR generated for your depots. Open the depot in the MTR dashboard and make sure its path was generated successfully.
+[*]Check the [B]Line colours[/B] switch in the side panel and color-lines in config.yml.
+[/LIST]
+[/SPOILER]
+
+[SPOILER="Vehicles do not move / update only on page reload"]
+[LIST]
+[*]Behind nginx or another proxy, disable buffering for the map (proxy_buffering off;). Cloudflare and similar CDNs may also buffer Server-Sent Events — use a plain DNS record for the map.
+[*]The status dot in the side panel shows the connection: green = online, red = reconnecting.
+[*]A console warning [B]MTR dimension … did not answer[/B] means MTR was too busy to answer in time; the previous positions are kept until it answers again.
+[/LIST]
+[/SPOILER]
+
+[SPOILER="Dynmap markers do not appear"]
+[LIST]
+[*]Dynmap must be installed as a server plugin. Without it the plugin logs [B]Dynmap plugin not found yet[/B] once and keeps waiting.
+[*]Check dynmap.enabled in config.yml.
+[*]Markers are synchronized every sync-interval-minutes (60 by default).
+[*]Wrong world? Fix the mapping under worlds: in config.yml.
+[/LIST]
+[/SPOILER]
+
+[SPOILER="The website language did not change"]
+Restart the server after changing language, then reload the page with Ctrl + F5. A single visitor can also use ?lang=en / ?lang=ru.
+[/SPOILER]
+
+[COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR]
+
+[SIZE=5][B]★ Version History[/B][/SIZE]
+
+[SIZE=4][B]What's New 1.0.0.2[/B][/SIZE]
+[LIST]
+[*][B]Live web map[/B]: MTR rails with curves in the colours of your lines, platforms, depot sidings, station areas, depots and smoothly moving vehicles (trains, boats, cable cars, airplanes).
+[*][B]Lines list[/B] with highlighting, [B]vehicle list[/B] with search and "follow", [B]station window[/B] with lines, vehicles at the station and vehicles heading there.
+[*][B]Transport type switches[/B] on the website.
+[*]Data is read on MTR's own simulation thread — nothing runs on the Minecraft server thread.
+[*][B]Dynmap is optional[/B]; markers unchanged; sync interval and icons configurable.
+[*][B]English / Russian[/B] localization.
+[*]/mtrmap, /mtrstations, /mtrroutes; stations.txt / routes.txt; station and route blacklists.
+[*]Existing config.yml files are upgraded automatically; worlds mappings are kept.
+[*]Quieter console.
+[/LIST]
+
+[SIZE=4][B]What's New 1.0.0.1[/B][/SIZE]
+[LIST]
+[*]Fixed Dynmap markers remaining after MTR stations or depots were removed; automatic cleanup of station and depot markers.
+[*]Automatic world and dimension detection, with optional world mappings in config.yml.
+[*]Automatic Y coordinate restoration when determining the surface location.
+[/LIST]
+
+[SIZE=4][B]What's New 1.0.0.0[/B][/SIZE]
+[LIST]
+[*]First release: MTR stations and depots on Dynmap.
+[/LIST]

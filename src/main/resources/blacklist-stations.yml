@@ -1,0 +1,4 @@
+# Add exact names (station or depot) below, one per line. Changes are picked up automatically.
+# Listed stations and depots are hidden on the web map and on Dynmap.
+stations:
+  # - Example name

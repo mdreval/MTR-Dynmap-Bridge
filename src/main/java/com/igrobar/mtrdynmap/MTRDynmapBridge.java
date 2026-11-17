@@ -1,832 +1,641 @@
 package com.igrobar.mtrdynmap;
 
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.java.JavaPlugin;
-
-import java.lang.reflect.Field;
 import java.io.File;
-import java.lang.reflect.Method;
-import java.util.*;
-import java.util.concurrent.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.logging.Level;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import org.bukkit.Bukkit;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import com.igrobar.mtrdynmap.web.Json;
+import com.igrobar.mtrdynmap.web.MapData;
+import com.igrobar.mtrdynmap.web.WebMapServer;
 
 /**
- * MTR -> Dynmap bridge.
+ * MTR → Dynmap bridge with a live web map of MTR vehicles.
  *
- * This source is a cleaned/reconstructed source representation of the supplied
- * bridge JAR. MTR and Dynmap are accessed reflectively so the plugin does not
- * need their classes at compile time.
+ * <p>The Bukkit scheduler is not used (some hybrid servers expose an incompatible one at runtime).
+ * The plugin runs two threads of its own: one feeds the web map, the other synchronizes Dynmap markers.
+ * MTR data is always read on MTR's simulation thread, see {@link MtrAccess}.</p>
  */
 public final class MTRDynmapBridge extends JavaPlugin {
-    private String getPluginVersion() {
-        return getDescription().getVersion();
-    }
-    private static final long INITIAL_DELAY_SECONDS = 5L;
-    private static final long SYNC_DELAY_SECONDS = 3600L;
+    /** Default port of the live web map. */
+    static final int DEFAULT_WEB_PORT = 25970;
+    private static final List<String> ALL_MODES = List.of("train", "boat", "cable_car", "airplane");
+    private static final long NETWORK_TIMEOUT_MS = 5000L;
+    private static final long VEHICLE_TIMEOUT_MS = 2000L;
 
-    private ScheduledExecutorService executor;
-    private volatile boolean mtrInitialized;
-    private ScheduledFuture<?> syncFuture;
-    private Object markerApi;
-    private Object markerSet;
-    private final Set<String> worldResolutionWarnings = new HashSet<>();
-    private int fallbackLogCount;
+    private final Set<String> warned = ConcurrentHashMap.newKeySet();
     private volatile boolean stopping;
-    private final Map<String, String> worldOverrides = new LinkedHashMap<>();
+    private volatile Lang lang = Lang.of("en");
+    private BlacklistFiles blacklist;
+    private WorldMappings worlds;
+    private MtrAccess mtr;
+    private ScheduledExecutorService webThread;
+    private ScheduledExecutorService dynmapThread;
+
+    // web map
+    private WebMapServer webMap;
+    private WebMapCollector webCollector;
+    private long webTrainIntervalMs;
+    private boolean showDepotVehicles;
+    private Set<String> modes = Set.copyOf(ALL_MODES);
+
+    // dynmap
+    private boolean dynmapEnabled;
+    private long dynmapIntervalMs;
+    private long nextDynmapSync;
+    private String stationIcon;
+    private String depotIcon;
+    private DynmapSync dynmap;
+
+    // latest data for commands and exports
+    private volatile List<MtrData.Network> latestNetworks = List.of();
+    private volatile Map<Long, Integer> vehiclesPerRoute = Map.of();
+    private volatile boolean mtrSeen;
+    private String lastExport = "";
 
     @Override
     public void onEnable() {
-        getLogger().info("MTR-Dynmap Bridge " + getPluginVersion() + " starting (executor + world-height Y mode)...");
-        getLogger().info("MTR-Dynmap: sync scheduler = startup checks every 5s; after MTR is ready, every 60m");
-        stopping = false;
-        mtrInitialized = false;
-        ensureConfigFile();
-        loadWorldOverrides();
-        autoPopulateVanillaWorldMappings();
+        this.stopping = false;
+        this.getLogger().info("MTR-Dynmap Bridge " + this.getDescription().getVersion() + " starting...");
 
-        executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "MTR-Dynmap-Bridge");
-            t.setDaemon(true);
-            return t;
-        });
+        // write config.yml on first start, then add sections that older configs do not have yet
+        this.saveDefaultConfig();
+        ConfigUpgrade.apply(this);
+        this.reloadConfig();
+        this.lang = Lang.of(this.getConfig().getString("language", "en"));
+        this.modes = this.readModes();
 
-        syncFuture = executor.scheduleWithFixedDelay(this::runSyncTick,
-                INITIAL_DELAY_SECONDS, 5L, TimeUnit.SECONDS);
+        File dataFolder = this.getDataFolder();
+        if (!dataFolder.exists() && !dataFolder.mkdirs() && !dataFolder.isDirectory()) {
+            throw new IllegalStateException("Cannot create plugin data folder: " + dataFolder);
+        }
+        for (String name : List.of("blacklist-stations.yml", "blacklist-routes.yml")) {
+            if (!new File(dataFolder, name).exists()) {
+                try {
+                    this.saveResource(name, false);
+                } catch (Throwable ignored) {
+                    // BlacklistFiles writes a minimal template instead
+                }
+            }
+        }
+        this.blacklist = new BlacklistFiles(dataFolder.toPath());
+        this.blacklist.reloadIfChanged();
+        this.worlds = new WorldMappings(this);
+        this.worlds.load();
+        this.worlds.autoPopulateVanilla();
+        this.mtr = new MtrAccess(this);
+
+        this.registerCommands();
+
+        this.dynmapEnabled = this.getConfig().getBoolean("dynmap.enabled", true);
+        this.dynmapIntervalMs = Math.max(1L, this.getConfig().getLong("dynmap.sync-interval-minutes", 60L)) * 60_000L;
+        this.stationIcon = this.getConfig().getString("dynmap.station-icon", "pin");
+        this.depotIcon = this.getConfig().getString("dynmap.depot-icon", "building");
+        this.dynmap = new DynmapSync(this, this.worlds);
+        this.nextDynmapSync = 0L;
+
+        this.dynmapThread = Executors.newSingleThreadScheduledExecutor(runnable -> daemon(runnable, "MTR-Dynmap-Bridge-Dynmap"));
+        // Checks every 5 s: waits for MTR and Dynmap, then synchronizes every dynmap.sync-interval-minutes.
+        this.dynmapThread.scheduleWithFixedDelay(this::dynmapTick, 5L, 5L, TimeUnit.SECONDS);
+
+        this.startWebMap();
+
+        this.getLogger().info("Dynmap markers: " + (this.dynmapEnabled
+                ? "on (every " + this.dynmapIntervalMs / 60_000L + " min; Dynmap is optional)" : "off")
+                + ". Waiting for MTR to start...");
     }
 
     @Override
     public void onDisable() {
-        stopping = true;
-        if (executor != null) {
-            executor.shutdownNow();
-            executor = null;
-            syncFuture = null;
+        this.stopping = true;
+        if (this.webThread != null) {
+            this.webThread.shutdownNow();
+            this.webThread = null;
+        }
+        if (this.dynmapThread != null) {
+            this.dynmapThread.shutdownNow();
+            this.dynmapThread = null;
+        }
+        if (this.webMap != null) {
+            this.webMap.stop();
+            this.webMap = null;
+        }
+        Reflect.clear();
+    }
+
+    private static Thread daemon(Runnable runnable, String name) {
+        Thread thread = new Thread(runnable, name);
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    private void registerCommands() {
+        if (this.getCommand("mtrmap") != null) {
+            this.getCommand("mtrmap").setExecutor(new MapCommand(this));
+        }
+        if (this.getCommand("mtrstations") != null) {
+            this.getCommand("mtrstations").setExecutor(new StationsCommand(this));
+        }
+        if (this.getCommand("mtrroutes") != null) {
+            this.getCommand("mtrroutes").setExecutor(new RoutesCommand(this));
         }
     }
 
-    private void runSyncTick() {
-        if (stopping) return;
-        getLogger().info("MTR-Dynmap: synchronization tick started");
+    private Set<String> readModes() {
+        List<String> configured = this.getConfig().getStringList("web-map.transport-modes");
+        if (configured == null || configured.isEmpty()) {
+            return Set.copyOf(ALL_MODES);
+        }
+        Set<String> result = new LinkedHashSet<>();
+        for (String mode : configured) {
+            String normalized = mode.trim().toLowerCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
+            if (normalized.equals("cablecar")) {
+                normalized = "cable_car";
+            }
+            if (normalized.equals("plane")) {
+                normalized = "airplane";
+            }
+            result.add(normalized);
+        }
+        return Set.copyOf(result);
+    }
+
+    // ------------------------------------------------------------------ MTR state
+
+    /** Logs once when MTR becomes available. */
+    private boolean checkMtr() {
+        boolean available = this.mtr.isAvailable();
+        if (available && !this.mtrSeen) {
+            this.mtrSeen = true;
+            this.getLogger().info("MTR detected; reading stations, routes and vehicles from the MTR simulation.");
+        }
+        return available;
+    }
+
+    // ------------------------------------------------------------------ Dynmap
+
+    private void dynmapTick() {
+        if (this.stopping || !this.dynmapEnabled || System.currentTimeMillis() < this.nextDynmapSync) {
+            return;
+        }
         try {
-            // Do not call Bukkit scheduler APIs here. Some hybrid server builds expose
-            // an incompatible Bukkit API at runtime (for example Server#getScheduler
-            // may be absent even though the plugin was compiled against Paper).
-            // The bridge historically performed the MTR/Dynmap reflection directly,
-            // and keeping that path avoids linkage errors on those hybrids.
-            safeRefresh();
-        } catch (Throwable t) {
-            getLogger().log(Level.WARNING, "MTR-Dynmap: scheduler tick failed: " + t, t);
-        }
-
-        // During startup MTR may initialize after Bukkit plugins. Keep checking
-        // every 5 seconds until the first successful MTR synchronization. Once
-        // MTR is available, switch this same scheduler to the hourly interval.
-        if (!mtrInitialized && isMtrCoreAvailable()) {
-            mtrInitialized = true;
-            if (executor != null && !executor.isShutdown()) {
-                ScheduledFuture<?> oldFuture = syncFuture;
-                syncFuture = executor.scheduleWithFixedDelay(this::runSyncTick,
-                        SYNC_DELAY_SECONDS, SYNC_DELAY_SECONDS, TimeUnit.SECONDS);
-                if (oldFuture != null) oldFuture.cancel(false);
+            if (!this.checkMtr()) {
+                return;
             }
-            getLogger().info("MTR-Dynmap: MTR detected; switching synchronization interval to every 60m");
+            MtrAccess.Result<MtrData.Network> result = this.mtr.networks(NETWORK_TIMEOUT_MS);
+            if (result == null) {
+                return;
+            }
+            this.blacklist.reloadIfChanged();
+            if (this.webMap == null) {
+                this.latestNetworks = List.copyOf(result.values());
+            }
+            int count = this.dynmap.sync(result.values(), result.complete(), this.stationIcon, this.depotIcon);
+            if (count >= 0) {
+                this.nextDynmapSync = System.currentTimeMillis() + this.dynmapIntervalMs;
+                this.getLogger().info("Dynmap: synchronized " + count + " station/depot marker(s); next sync in "
+                        + this.dynmapIntervalMs / 60_000L + " min.");
+            }
+        } catch (Throwable throwable) {
+            Throwable cause = Reflect.unwrap(throwable);
+            this.warnOnce("dynmap-sync:" + cause.getClass().getName(), "Dynmap synchronization failed (will retry in 1 min): " + cause);
+            this.nextDynmapSync = System.currentTimeMillis() + 60_000L;
         }
     }
 
-    private boolean isMtrCoreAvailable() {
-        return getMTRMain() != null;
-    }
+    // ------------------------------------------------------------------ web map
 
-    private Method findCompatibleMethod(Class<?> type, String name, int parameterCount) {
-        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            for (Method m : c.getDeclaredMethods()) {
-                if (m.getName().equals(name) && m.getParameterCount() == parameterCount) return m;
-            }
-            for (Class<?> iface : c.getInterfaces()) {
-                Method m = findCompatibleMethod(iface, name, parameterCount);
-                if (m != null) return m;
-            }
+    private void startWebMap() {
+        if (!this.getConfig().getBoolean("web-map.enabled", true)) {
+            this.getLogger().info("Web map is disabled (web-map.enabled: false).");
+            return;
         }
-        return null;
-    }
+        String bind = this.getConfig().getString("web-map.bind-address", "0.0.0.0");
+        int port = this.getConfig().getInt("web-map.port", DEFAULT_WEB_PORT);
+        int maxViewers = this.getConfig().getInt("web-map.max-viewers", 50);
+        double trainSeconds = Math.max(0.25, this.getConfig().getDouble("web-map.train-update-interval-seconds", 1.0));
+        long networkSeconds = Math.max(5L, this.getConfig().getLong("web-map.network-check-interval-seconds", 15L));
+        this.webTrainIntervalMs = Math.round(trainSeconds * 1000.0);
+        this.showDepotVehicles = this.getConfig().getBoolean("web-map.show-vehicles-in-depots", false);
 
-    private void safeRefresh() {
+        File webFolder = new File(this.getDataFolder(), "web");
         try {
-            refresh();
-        } catch (Throwable t) {
-            getLogger().log(Level.WARNING, "MTR-Dynmap: refresh failed: " + t, t);
+            this.webMap = new WebMapServer(this.getLogger(), this.getClassLoader(), webFolder.toPath().toAbsolutePath().normalize(),
+                    maxViewers, this.webConfigJson());
+            this.webMap.start(bind, port);
+        } catch (Throwable throwable) {
+            if (this.webMap != null) {
+                this.webMap.stop();
+            }
+            this.webMap = null;
+            this.getLogger().warning("Web map could not start on " + bind + ":" + port + " — " + throwable
+                    + ". Is the port already in use? Change web-map.port in config.yml.");
+            return;
+        }
+        this.webCollector = new WebMapCollector(this);
+        this.webThread = Executors.newSingleThreadScheduledExecutor(runnable -> daemon(runnable, "MTR-Dynmap-Bridge-Web"));
+        this.webThread.scheduleWithFixedDelay(this::webNetworkTick, 3L, networkSeconds, TimeUnit.SECONDS);
+        this.webThread.scheduleWithFixedDelay(this::webTrainTick, 4000L, this.webTrainIntervalMs, TimeUnit.MILLISECONDS);
+        this.getLogger().info("Web map started on port " + port + ": " + this.webMapUrl()
+                + " (vehicles every " + this.webTrainIntervalMs + " ms).");
+    }
+
+    private void webNetworkTick() {
+        if (this.stopping || this.webMap == null) {
+            return;
+        }
+        try {
+            if (!this.checkMtr()) {
+                return;
+            }
+            MtrAccess.Result<MtrData.Network> result = this.mtr.networks(NETWORK_TIMEOUT_MS);
+            if (result == null) {
+                return;
+            }
+            this.blacklist.reloadIfChanged();
+            this.latestNetworks = List.copyOf(result.values());
+            this.webMap.publishNetwork(this.webCollector.network(result.values(), this.modes));
+            this.webMap.publishPlaces(this.webCollector.places(result.values(), this.modes));
+            this.exportLists(result.values());
+        } catch (Throwable throwable) {
+            Throwable cause = Reflect.unwrap(throwable);
+            this.warnOnce("web-network:" + cause.getClass().getName(), "Web map: reading the MTR network failed: " + cause);
         }
     }
 
-    private void refresh() throws Exception {
-        if (stopping) return;
-
-        Object dynmap = findDynmapPlugin();
-        if (dynmap == null) {
-            getLogger().warning("MTR-Dynmap: Dynmap plugin not found yet.");
+    private void webTrainTick() {
+        if (this.stopping || this.webMap == null) {
             return;
         }
-
-        Object api = invoke(dynmap, "getMarkerAPI");
-        if (api == null) {
-            getLogger().warning("MTR-Dynmap: Dynmap Marker API is not initialized yet.");
-            return;
-        }
-
-        Object set = invoke(api, "getMarkerSet", String.class, "mtrbridge");
-        if (set == null) {
-            set = invoke(api, "createMarkerSet",
-                    String.class, String.class, Set.class, boolean.class,
-                    "mtrbridge", "MTR", null, true);
-            invoke(set, "setHideByDefault", boolean.class, false);
-            invoke(set, "setLabelShow", Boolean.class, Boolean.TRUE);
-        }
-        markerApi = api;
-        markerSet = set;
-
-        Object mtrMain = getMTRMain();
-        if (mtrMain == null) {
-            getLogger().warning("MTR-Dynmap: MTR core Main is not available yet.");
-            return;
-        }
-
-        Field simulatorsField = mtrMain.getClass().getDeclaredField("simulators");
-        simulatorsField.setAccessible(true);
-        Object simulators = simulatorsField.get(mtrMain);
-
-        // Populate missing world mappings automatically from the dimensions
-        // that MTR actually exposes. Existing mappings are preserved.
-        autoPopulateWorldMappings((Iterable<?>) simulators);
-
-        Set<String> seen = new HashSet<>();
-        fallbackLogCount = 0;
-
-        for (Object simulator : (Iterable<?>) simulators) {
-            String dimension = String.valueOf(simulator.getClass().getField("dimension").get(simulator));
-            String world = resolveDynmapWorld(dimension);
-            getLogger().info("MTR-Dynmap: MTR dimension " + dimension + " -> Dynmap world " + world);
-            syncCollection(simulator, "stations", "station", world, seen);
-            syncCollection(simulator, "depots", "depot", world, seen);
-        }
-
-        removeStale(seen);
-        getLogger().info("MTR-Dynmap: synchronized " + seen.size() + " station/depot markers.");
-        getLogger().info("MTR-Dynmap: synchronization tick finished");
-    }
-
-    private void syncCollection(Object simulator, String fieldName, String type,
-                                String world, Set<String> seen) throws Exception {
-        Field field = simulator.getClass().getField(fieldName);
-        field.setAccessible(true);
-        Object collection = field.get(simulator);
-
-        for (Object entry : (Iterable<?>) collection) {
-            Object center = accessibleMethod(entry.getClass(), "getCenter").invoke(entry);
-            if (center == null) continue;
-
-            long x = ((Number) invoke(center, "getX")).longValue();
-            long y = ((Number) invoke(center, "getY")).longValue();
-            long z = ((Number) invoke(center, "getZ")).longValue();
-            y = resolveY(x, y, z, world);
-
-            String hexId = String.valueOf(invoke(entry, "getHexId"));
-            String name = String.valueOf(invoke(entry, "getName"));
-            if (name == null || name.isBlank() || "null".equals(name)) {
-                name = type.equals("station") ? "MTR Station" : "MTR Depot";
+        try {
+            if (!this.mtrSeen && !this.checkMtr()) {
+                return;
             }
-
-            String id = type + "_" + world.replace(':', '_') + "_" + hexId;
-            seen.add(id);
-
-            // Use Dynmap's explicit transport-style icons instead of the default
-            // marker (the default icon is a house). Stations use the standard
-            // pin icon; depots use the standard building icon. If a custom/older
-            // Dynmap build does not provide one of them, fall back to default.
-            String iconId = type.equals("station") ? "pin" : "building";
-            Object icon = invoke(markerApi, "getMarkerIcon", String.class, iconId);
-            if (icon == null) {
-                icon = invoke(markerApi, "getMarkerIcon", String.class, "default");
+            MtrAccess.Result<List<MtrData.Vehicle>> result = this.mtr.vehicles(this.showDepotVehicles, VEHICLE_TIMEOUT_MS);
+            if (result == null) {
+                return;
             }
-
-            Object marker = invoke(markerSet, "findMarker", String.class, id);
-            if (marker == null) {
-                marker = invoke(markerSet, "createMarker",
-                        String.class, String.class, String.class,
-                        double.class, double.class, double.class,
-                        Class.forName("org.dynmap.markers.MarkerIcon"), boolean.class,
-                        id, name, world, (double) x, (double) y, (double) z, icon, true);
-            } else {
-                invoke(marker, "setLocation", String.class, double.class, double.class, double.class,
-                        world, (double) x, (double) y, (double) z);
-            }
-
-            // Also repair the icon on existing persistent markers, so upgrading
-            // from an older bridge version immediately restores the intended icons.
-            if (icon != null) {
-                try {
-                    invoke(marker, "setMarkerIcon", Class.forName("org.dynmap.markers.MarkerIcon"), icon);
-                } catch (Throwable ignored) {
-                    // Older Dynmap APIs may not expose setMarkerIcon; creation still
-                    // uses the correct icon above.
+            List<MtrData.Vehicle> vehicles = new ArrayList<>();
+            Map<Long, Integer> perRoute = new HashMap<>();
+            for (List<MtrData.Vehicle> list : result.values()) {
+                vehicles.addAll(list);
+                for (MtrData.Vehicle vehicle : list) {
+                    if (vehicle.onRoute()) {
+                        perRoute.merge(vehicle.routeId(), 1, Integer::sum);
+                    }
                 }
             }
-
-            String prefix = type.equals("station") ? "Station: " : "Depot: ";
-            invoke(marker, "setLabel", String.class, prefix + name);
-            invoke(marker, "setDescription", String.class,
-                    "<b>" + escape(name) + "</b><br>Type: " + escape(type)
-                            + "<br>World: " + escape(world)
-                            + "<br>X: " + x + " Y: " + y + " Z: " + z);
+            this.vehiclesPerRoute = Map.copyOf(perRoute);
+            List<MapData.TrainInfo> trains = this.webCollector.trains(vehicles, this.modes);
+            this.webMap.publishTrains(trains, System.currentTimeMillis(), this.webTrainIntervalMs);
+        } catch (Throwable throwable) {
+            Throwable cause = Reflect.unwrap(throwable);
+            this.warnOnce("web-trains:" + cause.getClass().getName(), "Web map: reading MTR vehicles failed: " + cause);
         }
+    }
+
+    private String webConfigJson() {
+        Json json = new Json(512);
+        json.beginObject()
+                .field("language", this.lang.code())
+                .field("title", this.getConfig().getString("web-map.title", ""))
+                .field("defaultDimension", this.getConfig().getString("web-map.default-dimension", "minecraft:overworld"))
+                .field("stationLabels", this.getConfig().getBoolean("web-map.show-station-labels", true))
+                .field("stationAreas", this.getConfig().getBoolean("web-map.show-station-areas", true))
+                .field("depots", this.getConfig().getBoolean("web-map.show-depots", true))
+                .field("lineColors", this.getConfig().getBoolean("web-map.color-lines", true))
+                .field("vehicleOutline", this.getConfig().getBoolean("web-map.vehicle-outline.enabled", true))
+                .field("vehicleOutlineColor", outlineColor(this.getConfig().getString("web-map.vehicle-outline.color", "#f4f6fa")))
+                .field("vehicleOutlineOpacity", clamp(this.getConfig().getDouble("web-map.vehicle-outline.opacity", 0.7), 0.0, 1.0))
+                .field("vehicleOutlineWidth", clamp(this.getConfig().getDouble("web-map.vehicle-outline.width", 1.5), 0.5, 5.0))
+                .field("dynmapUrl", this.getConfig().getString("web-map.dynmap-url", ""))
+                .field("mtrMapUrl", this.getConfig().getString("web-map.mtr-map-url", ""))
+                .field("version", this.getDescription().getVersion());
+        json.key("dimensions").beginObject();
+        ConfigurationSection dimensions = this.getConfig().getConfigurationSection("web-map.dimensions");
+        if (dimensions != null) {
+            for (String key : dimensions.getKeys(false)) {
+                json.field(key, dimensions.getString(key, key));
+            }
+        }
+        json.endObject().endObject();
+        return json.toString();
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Double.isNaN(value) ? min : Math.max(min, Math.min(max, value));
+    }
+
+    /** "#RGB" / "#RRGGBB" (the "#" may be omitted); anything else falls back to the default almost-white. */
+    private static String outlineColor(String value) {
+        String color = value == null ? "" : value.trim();
+        if (!color.startsWith("#")) {
+            color = "#" + color;
+        }
+        return color.matches("#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}") ? color : "#f4f6fa";
+    }
+
+    /** Map link for the console: web-map.public-url or http://<server-ip>:<port>/. */
+    String webMapUrl() {
+        return this.webMapUrl(null);
     }
 
     /**
-     * Resolves an MTR dimension to the actual Bukkit/Dynmap world name.
-     *
-     * No server/world name is embedded in the plugin. Vanilla dimensions are
-     * matched by their Bukkit environment, while custom dimensions first try
-     * their actual world name/path. This keeps the bridge portable between
-     * servers whose overworlds are named differently (for example Virus,
-     * world, Survival, etc.).
+     * Map link for a command sender.
+     * Order: web-map.public-url → the address the player used to join the server
+     * (e.g. "play.example.com") → server-ip from server.properties → "<server-ip>".
      */
-    private String resolveDynmapWorld(String dimension) {
-        List<?> worlds;
+    String webMapUrl(org.bukkit.command.CommandSender sender) {
+        String url = this.getConfig().getString("web-map.public-url", "");
+        if (url != null && !url.isBlank()) {
+            return url;
+        }
+        String host = sender == null ? null : joinHost(sender);
+        if (host == null) {
+            try {
+                host = Bukkit.getIp();
+            } catch (Throwable ignored) {
+                host = null;
+            }
+        }
+        if (host == null || host.isBlank() || host.equals("0.0.0.0")) {
+            host = "<server-ip>";
+        }
+        if (host.indexOf(':') >= 0 && !host.startsWith("[")) {
+            host = "[" + host + "]"; // IPv6 literal
+        }
+        return "http://" + host + ":" + this.getConfig().getInt("web-map.port", DEFAULT_WEB_PORT) + "/";
+    }
+
+    /** The host name a player typed to join (Paper's Player#getVirtualHost), or null if unknown. */
+    private static String joinHost(org.bukkit.command.CommandSender sender) {
         try {
-            worlds = Bukkit.getWorlds();
-        } catch (Throwable t) {
-            return dimension;
-        }
-
-        // 1) Explicit server-local override from config.yml.
-        String override = worldOverrides.get(dimension);
-        if (override == null) override = worldOverrides.get(normalizeDimensionKey(dimension));
-        if (override != null && !override.isBlank()) {
-            Object configuredWorld = findWorldByName(worlds, override.trim());
-            if (configuredWorld != null) {
-                return getWorldName(configuredWorld);
+            Object address = Reflect.optionalCall(sender, "getVirtualHost");
+            if (!(address instanceof java.net.InetSocketAddress socket)) {
+                return null;
             }
-            warnOnce("override:" + dimension,
-                    "configured world '" + override + "' for dimension '" + dimension
-                            + "' is not loaded; falling back to automatic detection.");
-        }
-
-        // 2) Exact Bukkit world-name match. Useful for custom MTR dimensions.
-        for (Object world : worlds) {
-            String name = getWorldName(world);
-            if (name != null && (name.equals(dimension) || name.equals(normalizeDimensionName(dimension)))) {
-                return name;
+            String host = socket.getHostString();
+            if (host == null) {
+                return null;
             }
-        }
-
-        String normalized = normalizeDimensionName(dimension);
-        String lower = normalized.toLowerCase(Locale.ROOT);
-
-        // 3) Vanilla dimensions: use Bukkit Environment, never assume a name
-        // such as "world", "Virus", etc.
-        String environment = null;
-        if (lower.equals("overworld") || lower.endsWith("/overworld")) {
-            environment = "NORMAL";
-        } else if (lower.equals("the_nether") || lower.endsWith("/the_nether")) {
-            environment = "NETHER";
-        } else if (lower.equals("the_end") || lower.endsWith("/the_end")) {
-            environment = "THE_END";
-        }
-
-        if (environment != null) {
-            List<String> candidates = new ArrayList<>();
-            for (Object world : worlds) {
-                if (environment.equals(getWorldEnvironment(world))) {
-                    String name = getWorldName(world);
-                    if (name != null && !name.isBlank()) candidates.add(name);
-                }
+            int marker = host.indexOf('\0'); // modded clients may append "\0FML…\0" to the host
+            if (marker >= 0) {
+                host = host.substring(0, marker);
             }
-            if (!candidates.isEmpty()) {
-                if (candidates.size() > 1) {
-                    warnOnce("multi:" + dimension,
-                            "multiple loaded " + environment + " worlds found for MTR dimension '"
-                                    + dimension + "': " + candidates
-                                    + ". Add an override under worlds: in plugins/MTR-Dynmap-Bridge/config.yml.");
-                }
-                return candidates.get(0);
+            while (host.endsWith(".")) {
+                host = host.substring(0, host.length() - 1);
             }
-        }
-
-        // 4) Custom dimensions: compare the final path component to a Bukkit world name.
-        String path = normalized;
-        int slash = path.lastIndexOf('/');
-        if (slash >= 0 && slash + 1 < path.length()) path = path.substring(slash + 1);
-        int colon = path.lastIndexOf(':');
-        if (colon >= 0 && colon + 1 < path.length()) path = path.substring(colon + 1);
-
-        for (Object world : worlds) {
-            String name = getWorldName(world);
-            if (name != null && name.equalsIgnoreCase(path)) return name;
-        }
-
-        warnOnce("unresolved:" + dimension,
-                "could not automatically resolve MTR dimension '" + dimension
-                        + "' to a loaded Bukkit world; using '" + dimension + "' as fallback.");
-        return dimension;
-    }
-
-    private String normalizeDimensionKey(String dimension) {
-        if (dimension == null) return "";
-        return dimension.replace('\\', '/').replace(':', '/').replaceAll("^/+|/+$", "");
-    }
-
-    private Object findWorldByName(List<?> worlds, String name) {
-        for (Object world : worlds) {
-            String worldName = getWorldName(world);
-            if (worldName != null && worldName.equals(name)) return world;
-        }
-        return null;
-    }
-
-    private void warnOnce(String key, String message) {
-        if (worldResolutionWarnings.add(key)) {
-            getLogger().warning("MTR-Dynmap: " + message);
+            host = host.trim();
+            boolean useless = host.isEmpty() || (host.equalsIgnoreCase("localhost") && !isLocalSender(sender));
+            return useless ? null : host;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
-    /**
-     * Populate the config immediately from the worlds Bukkit already knows.
-     * This makes the first generated config useful even when MTR itself has
-     * not finished initializing yet. Custom MTR dimensions are added later
-     * when the MTR simulators become available.
-     */
-    private void autoPopulateVanillaWorldMappings() {
+    private static boolean isLocalSender(org.bukkit.command.CommandSender sender) {
+        Object address = Reflect.optionalCall(sender, "getAddress");
+        return address instanceof java.net.InetSocketAddress socket && socket.getAddress() != null
+                && socket.getAddress().isLoopbackAddress();
+    }
+
+    boolean isWebMapRunning() {
+        return this.webMap != null;
+    }
+
+    int webMapViewers() {
+        return this.webMap == null ? 0 : this.webMap.viewers();
+    }
+
+    // ------------------------------------------------------------------ data for commands / exports
+
+    /** Latest network snapshot (from the web map or the Dynmap thread); never waits for MTR. */
+    List<MtrData.Network> networksForCommands() {
+        return this.latestNetworks;
+    }
+
+    Map<Long, Integer> vehiclesPerRoute() {
+        return this.vehiclesPerRoute;
+    }
+
+    /** Writes stations.txt and routes.txt to the plugin folder when the lists change. */
+    private void exportLists(List<MtrData.Network> networks) {
+        List<String> stations = new ArrayList<>();
+        List<String> routes = new ArrayList<>();
+        for (MtrData.Network network : networks) {
+            for (MtrData.Area station : network.stations()) {
+                stations.add(WebMapCollector.displayName(station.name()) + " (" + network.dimension() + ")");
+            }
+            for (MtrData.Route route : network.routes()) {
+                String number = WebMapCollector.displayName(route.number());
+                routes.add((number.isEmpty() ? "" : "[" + number + "] ") + WebMapCollector.displayName(route.name())
+                        + " (" + route.mode() + ", " + network.dimension() + (route.hidden() ? ", hidden" : "") + ")");
+            }
+        }
+        stations.sort(String.CASE_INSENSITIVE_ORDER);
+        routes.sort(String.CASE_INSENSITIVE_ORDER);
+        String signature = String.join("\n", stations) + "\n--\n" + String.join("\n", routes);
+        if (signature.equals(this.lastExport)) {
+            return;
+        }
         try {
-            List<?> worlds = Bukkit.getWorlds();
-            LinkedHashMap<String, String> mappings = new LinkedHashMap<>(worldOverrides);
-            boolean changed = false;
-
-            changed |= addEnvironmentMapping(mappings, "minecraft/overworld", "NORMAL", worlds);
-            changed |= addEnvironmentMapping(mappings, "minecraft/the_nether", "NETHER", worlds);
-            changed |= addEnvironmentMapping(mappings, "minecraft/the_end", "THE_END", worlds);
-
-            if (changed) {
-                rewriteWorldMappingsPreservingComments(mappings);
-                worldOverrides.clear();
-                worldOverrides.putAll(mappings);
-                getLogger().info("MTR-Dynmap: automatically detected " + mappings.size()
-                        + " world mapping(s) and wrote them to config.yml");
-            }
-        } catch (Throwable t) {
-            getLogger().warning("MTR-Dynmap: could not auto-detect Bukkit worlds: " + t);
+            Files.write(new File(this.getDataFolder(), "stations.txt").toPath(), stations, StandardCharsets.UTF_8);
+            Files.write(new File(this.getDataFolder(), "routes.txt").toPath(), routes, StandardCharsets.UTF_8);
+            this.lastExport = signature;
+        } catch (Throwable throwable) {
+            this.warnOnce("export", "Could not write stations.txt / routes.txt: " + throwable);
         }
     }
 
-    private boolean addEnvironmentMapping(Map<String, String> mappings, String dimension,
-                                           String environment, List<?> worlds) {
-        String existing = mappings.get(dimension);
-        if (existing != null && !existing.isBlank() && findWorldByName(worlds, existing) != null) return false;
+    // ------------------------------------------------------------------ shared helpers
 
-        List<String> candidates = new ArrayList<>();
-        for (Object world : worlds) {
-            if (environment.equals(getWorldEnvironment(world))) {
-                String name = getWorldName(world);
-                if (name != null && !name.isBlank()) candidates.add(name);
-            }
+    Lang lang() {
+        return this.lang;
+    }
+
+    boolean isMtrAvailable() {
+        return this.mtr != null && this.mtr.isAvailable();
+    }
+
+    boolean isStationBlacklisted(String... namesOrIds) {
+        return this.blacklist != null && this.blacklist.isStationBlacklisted(namesOrIds);
+    }
+
+    boolean isRouteBlacklisted(String... namesOrNumbers) {
+        return this.blacklist != null && this.blacklist.isRouteBlacklisted(namesOrNumbers);
+    }
+
+    void warnOnce(String key, String message) {
+        if (this.warned.add(key)) {
+            this.getLogger().warning(message);
         }
-        if (candidates.isEmpty()) return false;
-        if (candidates.size() > 1) {
-            warnOnce("startup-multi:" + dimension,
-                    "multiple loaded " + environment + " worlds found for '" + dimension
-                            + "': " + candidates + ". The first one ('" + candidates.get(0)
-                            + "') was written automatically; change config.yml if another world should be used.");
+    }
+}
+
+/** /mtrmap — shows a clickable link to the live web map. */
+final class MapCommand implements org.bukkit.command.CommandExecutor {
+    private final MTRDynmapBridge plugin;
+
+    MapCommand(MTRDynmapBridge plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean onCommand(org.bukkit.command.CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
+        Lang lang = this.plugin.lang();
+        if (!this.plugin.isWebMapRunning()) {
+            sender.sendMessage(lang.get("map-disabled"));
+            return true;
         }
-        String selected = candidates.get(0);
-        if (selected.equals(existing)) return false;
-        mappings.put(dimension, selected);
+        String url = this.plugin.webMapUrl(sender);
+        if (!(sender instanceof org.bukkit.entity.Player player) || !sendClickable(player, lang, url)) {
+            sender.sendMessage(lang.get("map-link", url));
+        }
+        if (sender.hasPermission("mtrdynmap.admin")) {
+            sender.sendMessage(lang.get("map-viewers", this.plugin.webMapViewers()));
+        }
         return true;
     }
 
-    private void rewriteWorldMappingsPreservingComments(LinkedHashMap<String, String> mappings) throws Exception {
-        File file = new File(getDataFolder(), "config.yml");
-        List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
-        int worldsIndex = -1;
-        int end = -1;
-        for (int i = 0; i < lines.size(); i++) {
-            if (lines.get(i).trim().equals("worlds:")) {
-                worldsIndex = i;
-                end = i + 1;
-                while (end < lines.size()) {
-                    String raw = lines.get(end);
-                    if (raw.startsWith("  ") || raw.startsWith("\t") || raw.trim().isEmpty() || raw.trim().startsWith("#")) end++;
-                    else break;
-                }
-                break;
-            }
+    /**
+     * Sends the link as a clickable chat message through the vanilla /tellraw command.
+     * This works on every server type (Paper, Spigot, hybrids) without extra APIs.
+     */
+    private static boolean sendClickable(org.bukkit.entity.Player player, Lang lang, String url) {
+        if (!url.startsWith("http://") && !url.startsWith("https://") || url.contains("<")) {
+            return false; // not a real link (e.g. "<server-ip>"), plain text is clearer
         }
-        if (worldsIndex < 0) {
-            lines.add("worlds:");
-            worldsIndex = lines.size() - 1;
-            end = lines.size();
+        try {
+            Json json = new Json(256);
+            json.beginArray();
+            json.value("");
+            json.beginObject().field("text", lang.get("map-link-prefix")).field("color", "gold").endObject();
+            json.beginObject()
+                    .field("text", url)
+                    .field("color", "aqua")
+                    .field("underlined", true);
+            json.key("clickEvent").beginObject().field("action", "open_url").field("value", url).endObject();
+            json.key("hoverEvent").beginObject().field("action", "show_text").field("contents", lang.get("map-link-hover")).endObject();
+            json.endObject();
+            json.endArray();
+            // The player name, not the UUID: vanilla treats a UUID as an entity selector, which /tellraw rejects.
+            return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:tellraw " + player.getName() + " " + json);
+        } catch (Throwable ignored) {
+            return false;
         }
-        lines.subList(worldsIndex + 1, end).clear();
-        List<String> replacement = new ArrayList<>();
-        for (Map.Entry<String, String> e : mappings.entrySet()) {
-            replacement.add("  " + yamlQuoteIfNeeded(e.getKey()) + ": " + yamlQuoteIfNeeded(e.getValue()));
-        }
-        lines.addAll(worldsIndex + 1, replacement);
-        Files.write(file.toPath(), lines, StandardCharsets.UTF_8);
+    }
+}
+
+/** /mtrstations [search] — lists MTR stations. */
+final class StationsCommand implements org.bukkit.command.CommandExecutor {
+    private final MTRDynmapBridge plugin;
+
+    StationsCommand(MTRDynmapBridge plugin) {
+        this.plugin = plugin;
     }
 
-    private void autoPopulateWorldMappings(Iterable<?> simulators) {
-        try {
-            File file = new File(getDataFolder(), "config.yml");
-            if (!file.isFile()) return;
+    @Override
+    public boolean onCommand(org.bukkit.command.CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
+        Lang lang = this.plugin.lang();
+        if (!sender.hasPermission("mtrdynmap.admin")) {
+            sender.sendMessage(lang.get("no-permission"));
+            return true;
+        }
+        List<MtrData.Network> networks = this.plugin.networksForCommands();
+        if (networks.isEmpty()) {
+            sender.sendMessage(lang.get("mtr-not-ready"));
+            return true;
+        }
+        String query = String.join(" ", args).trim().toLowerCase(Locale.ROOT);
+        List<String> lines = new ArrayList<>();
+        for (MtrData.Network network : networks) {
+            for (MtrData.Area station : network.stations()) {
+                String name = WebMapCollector.displayName(station.name());
+                if (name.isEmpty()) {
+                    name = lang.get("unnamed-station");
+                }
+                if (query.isEmpty() || name.toLowerCase(Locale.ROOT).contains(query)) {
+                    lines.add("- " + name + " §7(" + network.dimension() + ", " + station.centerX() + " " + station.centerZ() + ")");
+                }
+            }
+        }
+        lines.sort(String.CASE_INSENSITIVE_ORDER);
+        sender.sendMessage(lang.get("stations-header", lines.size()));
+        if (lines.isEmpty()) {
+            sender.sendMessage(lang.get("list-empty"));
+        }
+        for (String line : lines) {
+            sender.sendMessage(line);
+        }
+        return true;
+    }
+}
 
-            List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
-            LinkedHashMap<String, String> mappings = readWorldMappings(lines);
-            LinkedHashMap<String, String> additions = new LinkedHashMap<>();
+/** /mtrroutes [search] — lists MTR routes and how many vehicles are on each. */
+final class RoutesCommand implements org.bukkit.command.CommandExecutor {
+    private final MTRDynmapBridge plugin;
 
-            for (Object simulator : simulators) {
-                String dimension = String.valueOf(simulator.getClass().getField("dimension").get(simulator));
-                if (dimension == null || dimension.isBlank()) continue;
+    RoutesCommand(MTRDynmapBridge plugin) {
+        this.plugin = plugin;
+    }
 
-                String key = dimension;
-                if (mappings.containsKey(key)) {
-                    // If an existing mapping points to a world that disappeared,
-                    // repair it automatically using the current server worlds.
-                    if (findWorldByName(Bukkit.getWorlds(), mappings.get(key)) == null) {
-                        String detected = resolveDynmapWorldIgnoringOverride(dimension);
-                        if (detected != null && !detected.equals(dimension)) {
-                            mappings.put(key, detected);
-                            getLogger().info("MTR-Dynmap: repaired world mapping " + dimension + " -> " + detected);
-                        }
-                    }
+    @Override
+    public boolean onCommand(org.bukkit.command.CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
+        Lang lang = this.plugin.lang();
+        if (!sender.hasPermission("mtrdynmap.admin")) {
+            sender.sendMessage(lang.get("no-permission"));
+            return true;
+        }
+        List<MtrData.Network> networks = this.plugin.networksForCommands();
+        if (networks.isEmpty()) {
+            sender.sendMessage(lang.get("mtr-not-ready"));
+            return true;
+        }
+        String query = String.join(" ", args).trim().toLowerCase(Locale.ROOT);
+        Map<Long, Integer> vehicles = this.plugin.vehiclesPerRoute();
+        List<String> lines = new ArrayList<>();
+        for (MtrData.Network network : networks) {
+            for (MtrData.Route route : network.routes()) {
+                String name = WebMapCollector.displayName(route.name());
+                if (name.isEmpty()) {
+                    name = lang.get("unnamed-route");
+                }
+                String number = WebMapCollector.displayName(route.number());
+                String text = (number.isEmpty() ? "" : "[" + number + "] ") + name;
+                if (!query.isEmpty() && !text.toLowerCase(Locale.ROOT).contains(query)) {
                     continue;
                 }
-
-                String detected = resolveDynmapWorldIgnoringOverride(dimension);
-                if (detected != null && !detected.isBlank() && !detected.equals(dimension)) {
-                    additions.put(key, detected);
-                    mappings.put(key, detected);
+                StringBuilder line = new StringBuilder("- ").append(text).append(" §7(").append(route.mode())
+                        .append(", ").append(network.dimension()).append(", ")
+                        .append(lang.get("route-vehicles", vehicles.getOrDefault(route.id(), 0)));
+                if (route.hidden()) {
+                    line.append(", ").append(lang.get("route-hidden"));
                 }
-            }
-
-            if (!additions.isEmpty()) {
-                writeWorldMappings(lines, additions);
-                getLogger().info("MTR-Dynmap: automatically added " + additions.size()
-                        + " world mapping(s) to config.yml");
-                worldOverrides.clear();
-                worldOverrides.putAll(mappings);
-            } else {
-                // Keep the runtime view synchronized with the file if a repair occurred.
-                writeAllMappingsIfChanged(lines, mappings);
-                worldOverrides.clear();
-                worldOverrides.putAll(mappings);
-            }
-        } catch (Throwable t) {
-            getLogger().warning("MTR-Dynmap: could not auto-populate world mappings: " + t);
-        }
-    }
-
-    private String resolveDynmapWorldIgnoringOverride(String dimension) {
-        String previous = worldOverrides.remove(dimension);
-        String normalizedKey = normalizeDimensionKey(dimension);
-        String previousNormalized = worldOverrides.remove(normalizedKey);
-        try {
-            return resolveDynmapWorld(dimension);
-        } finally {
-            if (previous != null) worldOverrides.put(dimension, previous);
-            if (previousNormalized != null) worldOverrides.put(normalizedKey, previousNormalized);
-        }
-    }
-
-    private LinkedHashMap<String, String> readWorldMappings(List<String> lines) {
-        LinkedHashMap<String, String> mappings = new LinkedHashMap<>();
-        boolean inWorlds = false;
-        for (String raw : lines) {
-            String line = raw.trim();
-            if (line.isEmpty() || line.startsWith("#")) continue;
-            if (line.equals("worlds:")) { inWorlds = true; continue; }
-            if (!inWorlds) continue;
-            if (!raw.startsWith("  ") && !raw.startsWith("\t")) break;
-            int colon = line.indexOf(':');
-            if (colon <= 0) continue;
-            String key = stripYamlQuotes(line.substring(0, colon).trim());
-            String value = stripYamlQuotes(line.substring(colon + 1).trim());
-            if (!key.isEmpty() && !value.isEmpty()) mappings.put(key, value);
-        }
-        return mappings;
-    }
-
-    private void writeWorldMappings(List<String> lines, LinkedHashMap<String, String> additions) throws Exception {
-        int worldsIndex = -1;
-        int insertAt = -1;
-        for (int i = 0; i < lines.size(); i++) {
-            String trimmed = lines.get(i).trim();
-            if (trimmed.equals("worlds:")) {
-                worldsIndex = i;
-                insertAt = i + 1;
-                while (insertAt < lines.size()) {
-                    String raw = lines.get(insertAt);
-                    if (raw.startsWith("  ") || raw.startsWith("\t") || raw.trim().isEmpty() || raw.trim().startsWith("#")) insertAt++;
-                    else break;
-                }
-                break;
+                lines.add(line.append(")").toString());
             }
         }
-        if (worldsIndex < 0) {
-            lines.add("worlds:");
-            insertAt = lines.size();
+        lines.sort(String.CASE_INSENSITIVE_ORDER);
+        sender.sendMessage(lang.get("routes-header", lines.size()));
+        if (lines.isEmpty()) {
+            sender.sendMessage(lang.get("list-empty"));
         }
-        List<String> additionsLines = new ArrayList<>();
-        for (Map.Entry<String, String> e : additions.entrySet()) {
-            additionsLines.add("  " + yamlQuoteIfNeeded(e.getKey()) + ": " + yamlQuoteIfNeeded(e.getValue()));
+        for (String line : lines) {
+            sender.sendMessage(line);
         }
-        lines.addAll(insertAt, additionsLines);
-        Files.write(new File(getDataFolder(), "config.yml").toPath(), lines, StandardCharsets.UTF_8);
-    }
-
-    private void writeAllMappingsIfChanged(List<String> lines, LinkedHashMap<String, String> mappings) throws Exception {
-        // Only rewrite when a previously configured world disappeared and was repaired.
-        LinkedHashMap<String, String> current = readWorldMappings(lines);
-        if (current.equals(mappings)) return;
-        int worldsIndex = -1;
-        int end = -1;
-        for (int i = 0; i < lines.size(); i++) {
-            if (lines.get(i).trim().equals("worlds:")) {
-                worldsIndex = i; end = i + 1;
-                while (end < lines.size()) {
-                    String raw = lines.get(end);
-                    if (raw.startsWith("  ") || raw.startsWith("\t") || raw.trim().isEmpty() || raw.trim().startsWith("#")) end++;
-                    else break;
-                }
-                break;
-            }
-        }
-        if (worldsIndex < 0) { lines.add("worlds:"); worldsIndex = lines.size()-1; end=lines.size(); }
-        List<String> replacement = new ArrayList<>();
-        for (Map.Entry<String, String> e : mappings.entrySet()) {
-            replacement.add("  " + yamlQuoteIfNeeded(e.getKey()) + ": " + yamlQuoteIfNeeded(e.getValue()));
-        }
-        lines.subList(worldsIndex + 1, end).clear();
-        lines.addAll(worldsIndex + 1, replacement);
-        Files.write(new File(getDataFolder(), "config.yml").toPath(), lines, StandardCharsets.UTF_8);
-    }
-
-    private String yamlQuoteIfNeeded(String value) {
-        if (value.matches("[A-Za-z0-9_./-]+")) return value;
-        return "\"" + value.replace("\"", "\\\"") + "\"";
-    }
-
-    private void ensureConfigFile() {
-        try {
-            File dir = getDataFolder();
-            if (dir == null) return;
-            if (!dir.exists() && !dir.mkdirs()) return;
-            File file = new File(dir, "config.yml");
-            if (!file.exists()) {
-                String content = "# MTR-Dynmap Bridge " + getPluginVersion() + "\\n"
-                        + "# World mappings are detected automatically from the MTR dimensions on the server.\\n"
-                        + "# You normally do NOT need to edit this file.\\n"
-                        + "# On first synchronization, missing mappings are written here automatically.\\n"
-                        + "# If you have multiple worlds and want to choose a specific one, edit the mapping.\\n"
-                        + "# Example:\\n"
-                        + "# worlds:\\n"
-                        + "#   minecraft/overworld: Survival\\n"
-                        + "#   minecraft/the_nether: Survival_nether\\n"
-                        + "#   minecraft/the_end: Survival_the_end\\n"
-                        + "# Existing entries are preserved unless the configured world no longer exists.\\n"
-                        + "worlds:\\n";
-                Files.writeString(file.toPath(), content.replace("\\n", System.lineSeparator()), StandardCharsets.UTF_8);
-            }
-        } catch (Throwable t) {
-            getLogger().warning("MTR-Dynmap: could not create config.yml: " + t);
-        }
-    }
-
-    private void loadWorldOverrides() {
-        worldOverrides.clear();
-        try {
-            File file = new File(getDataFolder(), "config.yml");
-            if (!file.isFile()) return;
-            boolean inWorlds = false;
-            for (String raw : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
-                String line = raw.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
-                if (line.equals("worlds:")) { inWorlds = true; continue; }
-                if (!inWorlds) continue;
-                if (!raw.startsWith("  ") && !raw.startsWith("\t")) break;
-                int colon = line.indexOf(':');
-                if (colon <= 0) continue;
-                String key = stripYamlQuotes(line.substring(0, colon).trim());
-                String value = stripYamlQuotes(line.substring(colon + 1).trim());
-                if (!key.isEmpty() && !value.isEmpty()) worldOverrides.put(key, value);
-            }
-            if (!worldOverrides.isEmpty()) {
-                getLogger().info("MTR-Dynmap: loaded " + worldOverrides.size() + " world mapping override(s) from config.yml");
-            }
-        } catch (Throwable t) {
-            getLogger().warning("MTR-Dynmap: could not read config.yml: " + t);
-        }
-    }
-
-    private String stripYamlQuotes(String value) {
-        if (value.length() >= 2) {
-            char first = value.charAt(0), last = value.charAt(value.length() - 1);
-            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
-                return value.substring(1, value.length() - 1);
-            }
-        }
-        return value;
-    }
-
-    private String normalizeDimensionName(String dimension) {
-        if (dimension == null) return "";
-        return dimension.replace('\\', '/').replace(':', '/').replaceAll("^/+|/+$", "");
-    }
-
-    private String getWorldName(Object world) {
-        try {
-            Object value = world.getClass().getMethod("getName").invoke(world);
-            return value == null ? null : String.valueOf(value);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private String getWorldEnvironment(Object world) {
-        try {
-            Object environment = world.getClass().getMethod("getEnvironment").invoke(world);
-            return environment == null ? null : String.valueOf(environment);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private long resolveY(long x, long y, long z, String worldName) {
-        if (y != 0) return y;
-        try {
-            Object world = Bukkit.getWorld(worldName);
-            if (world != null) {
-                Method m = Class.forName("org.bukkit.World")
-                        .getMethod("getHighestBlockYAt", int.class, int.class);
-                long surface = ((Number) m.invoke(world, (int) x, (int) z)).longValue() + 1L;
-                logFallback("world surface", worldName, x, y, z, surface);
-                return surface;
-            }
-        } catch (Throwable t) {
-            if (fallbackLogCount < 10) {
-                getLogger().warning("MTR-Dynmap: Y recovery failed " + worldName + " "
-                        + x + "," + y + "," + z + ": " + t);
-                fallbackLogCount++;
-            }
-        }
-        return y;
-    }
-
-    private void logFallback(String mode, String world, long x, long oldY, long z, long newY) {
-        if (fallbackLogCount < 10) {
-            getLogger().info("MTR-Dynmap: Y recovery (" + mode + "): " + world + " "
-                    + x + "," + oldY + "," + z + " -> " + newY);
-            fallbackLogCount++;
-        }
-    }
-
-    private void removeStale(Set<String> seen) throws Exception {
-        // The mtrbridge marker set is owned by this plugin. Delete every marker
-        // that is no longer present in the current MTR station/depot snapshot.
-        // This also cleans up markers created by older bridge builds whose IDs
-        // used the station_<world>_<hex> / depot_<world>_<hex> format.
-        Object markers = invoke(markerSet, "getMarkers");
-        int removed = 0;
-        for (Object marker : new ArrayList<>((Collection<?>) markers)) {
-            String id = String.valueOf(invoke(marker, "getMarkerID"));
-            if (!seen.contains(id)) {
-                invoke(marker, "deleteMarker");
-                removed++;
-            }
-        }
-        if (removed > 0) {
-            getLogger().info("MTR-Dynmap: removed " + removed + " stale station/depot marker(s).");
-        }
-    }
-
-    private Object findDynmapPlugin() throws Exception {
-        Class<?> bukkit = Class.forName("org.bukkit.Bukkit");
-        Object manager = bukkit.getMethod("getPluginManager").invoke(null);
-        return manager.getClass().getMethod("getPlugin", String.class).invoke(manager, "dynmap");
-    }
-
-    private Object getMTRMain() {
-        String[] candidates = {
-                "org.mtr.MTR",
-                "org.mtr.mod.Init",
-                "org.mtr.mod.MTR",
-                "org.mtr.core.Main"
-        };
-
-        for (String className : candidates) {
-            try {
-                Class<?> type = Class.forName(className);
-
-                // First try conventional static fields (main, instance, etc.).
-                for (String fieldName : new String[]{"main", "instance", "MAIN", "INSTANCE"}) {
-                    try {
-                        Field field = type.getDeclaredField(fieldName);
-                        field.setAccessible(true);
-                        Object value = field.get(null);
-                        Object main = findMainLikeObject(value);
-                        if (main != null) return main;
-                    } catch (Throwable ignored) {
-                    }
-                }
-
-                // Some MTR hosts keep the core Main in another static field.
-                for (Field field : type.getDeclaredFields()) {
-                    try {
-                        if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-                        field.setAccessible(true);
-                        Object value = field.get(null);
-                        Object main = findMainLikeObject(value);
-                        if (main != null) return main;
-                    } catch (Throwable ignored) {
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        return null;
-    }
-
-    private Object findMainLikeObject(Object value) {
-        if (value == null) return null;
-        try {
-            Field simulators = value.getClass().getDeclaredField("simulators");
-            simulators.setAccessible(true);
-            Object sims = simulators.get(value);
-            if (sims instanceof Iterable<?>) return value;
-        } catch (Throwable ignored) {
-        }
-        return null;
-    }
-
-    private static Method accessibleMethod(Class<?> type, String name, Class<?>... parameterTypes)
-            throws NoSuchMethodException {
-        // Dynmap's concrete MarkerImpl does not necessarily declare every API
-        // method itself; methods such as setLocation/setMarkerIcon can be exposed
-        // through the Marker interface. Search superclasses and interfaces.
-        Set<Class<?>> visited = new HashSet<>();
-        Method method = findMethodRecursive(type, name, parameterTypes, visited);
-        if (method != null) {
-            try { method.setAccessible(true); } catch (Throwable ignored) {}
-            return method;
-        }
-        throw new NoSuchMethodException(type.getName() + "#" + name);
-    }
-
-    private static Method findMethodRecursive(Class<?> type, String name, Class<?>[] parameterTypes,
-                                              Set<Class<?>> visited) {
-        if (type == null || !visited.add(type)) return null;
-        try {
-            return type.getDeclaredMethod(name, parameterTypes);
-        } catch (NoSuchMethodException ignored) {
-        }
-        for (Class<?> iface : type.getInterfaces()) {
-            Method method = findMethodRecursive(iface, name, parameterTypes, visited);
-            if (method != null) return method;
-        }
-        return findMethodRecursive(type.getSuperclass(), name, parameterTypes, visited);
-    }
-
-    private static Object invoke(Object target, String name, Object... args) throws Exception {
-        Class<?>[] types = new Class<?>[args.length];
-        for (int i = 0; i < args.length; i++) types[i] = args[i] == null ? Object.class : args[i].getClass();
-        return accessibleMethod(target.getClass(), name, types).invoke(target, args);
-    }
-
-    private static Object invoke(Object target, String name, Class<?> p1, Object a1) throws Exception {
-        return accessibleMethod(target.getClass(), name, p1).invoke(target, a1);
-    }
-
-    private static Object invoke(Object target, String name,
-                                  Class<?> p1, Class<?> p2, Class<?> p3, Class<?> p4,
-                                  Object a1, Object a2, Object a3, Object a4) throws Exception {
-        return accessibleMethod(target.getClass(), name, p1, p2, p3, p4)
-                .invoke(target, a1, a2, a3, a4);
-    }
-
-    private static Object invoke(Object target, String name,
-                                  Class<?> p1, Class<?> p2, Class<?> p3, Class<?> p4,
-                                  Class<?> p5, Class<?> p6, Class<?> p7, Class<?> p8,
-                                  Object a1, Object a2, Object a3, Object a4,
-                                  Object a5, Object a6, Object a7, Object a8) throws Exception {
-        return accessibleMethod(target.getClass(), name, p1, p2, p3, p4, p5, p6, p7, p8)
-                .invoke(target, a1, a2, a3, a4, a5, a6, a7, a8);
-    }
-
-    private static String escape(String value) {
-        return value.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
+        return true;
     }
 }

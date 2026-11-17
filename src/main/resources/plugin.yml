@@ -3,6 +3,26 @@ version: ${version}
 author: IGROBAR
 main: com.igrobar.mtrdynmap.MTRDynmapBridge
 api-version: '1.21'
-softdepend:
-  - dynmap
-description: Universal MTR 4.x station/depot bridge for Dynmap with automatic world detection, optional world overrides and hourly synchronization.
+softdepend: [dynmap]
+description: Live web map of Minecraft Transit Railway (MTR 4) vehicles, plus MTR stations and depots on Dynmap, with automatic world detection.
+commands:
+  mtrmap:
+    description: Show the link to the live web map of MTR vehicles.
+    aliases: [transitmap]
+    permission: mtrdynmap.map
+    usage: /mtrmap
+  mtrstations:
+    description: List MTR stations (optionally filtered by a search text).
+    permission: mtrdynmap.admin
+    usage: /mtrstations [search]
+  mtrroutes:
+    description: List MTR routes and how many vehicles are on each (optionally filtered by a search text).
+    permission: mtrdynmap.admin
+    usage: /mtrroutes [search]
+permissions:
+  mtrdynmap.map:
+    description: Allows /mtrmap (link to the live web map).
+    default: true
+  mtrdynmap.admin:
+    description: Allows /mtrstations and /mtrroutes, and shows the viewer count in /mtrmap.
+    default: op

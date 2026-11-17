@@ -1,0 +1,146 @@
+[CENTER][SIZE=7][B]🚇 MTR-Dynmap Bridge[/B][/SIZE]
+[SIZE=4][I]Live web map of Minecraft Transit Railway vehicles, plus MTR stations and depots on Dynmap[/I][/SIZE]
+
+[SIZE=3][COLOR=#E53935][B]v1.0.0.2[/B][/COLOR]  •  [B]Minecraft 1.21.1 / 1.21.4[/B]  •  [B]Java 21+[/B]  •  [B]MTR 4.1.0-beta.2[/B]  •  [COLOR=#46C17A][B]Dynmap optional[/B][/COLOR][/SIZE]
+
+[IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-overview.jpg[/IMG]
+[I]The built-in live web map — every MTR line, station and vehicle of the server in one browser tab.[/I][/CENTER]
+
+MTR-Dynmap Bridge connects the [B]Minecraft Transit Railway (MTR 4)[/B] mod with the web. It gives your server [B]two ways[/B] to watch your transport network:
+[LIST]
+[*][B]🗺️ Live web map[/B] — a lightweight website built into the plugin: the real layout of your network, stations, depots and [B]smoothly moving trains, boats, cable cars and airplanes[/B]. No Dynmap required.
+[*][B]📍 Dynmap markers[/B] — MTR stations and depots on your existing Dynmap.
+[/LIST]
+Use both together, or only one of them — each part can be switched off in [B]config.yml[/B].
+
+[CENTER][COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR][/CENTER]
+
+[SIZE=5][B]✨ Features[/B][/SIZE]
+
+[SIZE=4][B]🗺️ Live web map[/B] [COLOR=#E53935][I](new in 1.0.0.2)[/I][/COLOR][/SIZE]
+[LIST]
+[*]Every MTR rail, [B]straight and curved[/B], in its real place — drawn [B]in the colours of your MTR lines[/B].
+[*]Platforms and depot sidings marked; boat routes, cable cars and flight paths in their own style.
+[*][B]Smoothly animated vehicles[/B] — trains, boats, cable cars, airplanes — in their line's colour, with the line number as a label.
+[*]Stations and depots with their areas from the MTR dashboard.
+[*][B]Station window:[/B] lines stopping there, vehicles at the station and vehicles heading there (distance, speed), updated live.
+[*][B]Lines list[/B] — click a line to highlight it and show only its vehicles.
+[*][B]Transport type switches[/B] — hide trains, boats, cable cars or airplanes with one tick.
+[*]Vehicle list for the selected dimension with [B]search[/B] by line, station or destination.
+[*][B]"Follow this vehicle"[/B] — the map keeps it in view.
+[*]Shareable links — the page address keeps the current view.
+[*][B]English / Russian[/B] interface.
+[*]Optional links to your Dynmap and to MTR's own system map.
+[/LIST]
+
+[CENTER][IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-line-highlight.jpg[/IMG]  [IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-follow.jpg[/IMG]
+[I]A line highlighted from the "Lines" list · following a train.[/I]
+
+[IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/station-popup.jpg[/IMG]  [IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-panel.jpg[/IMG]
+[I]Station window: lines, vehicles at the station and vehicles on their way · side panel with layers and transport type switches.[/I]
+
+[IMG]https://raw.githubusercontent.com/mdreval/MTR-Dynmap-Bridge/main/docs/images/web-map-cable-car.jpg[/IMG]
+[I]Metro lines in their colours next to a cable car (dotted).[/I][/CENTER]
+
+[SIZE=4][B]📍 Dynmap markers[/B][/SIZE]
+[LIST]
+[*]Automatically displays MTR stations ([B]pin[/B] icon) and depots ([B]building[/B] icon) on Dynmap.
+[*]Markers of deleted stations and depots are removed automatically.
+[*]Automatic MTR dimension → server world mapping, with manual overrides — no world name is hard-coded.
+[*]Automatic Y coordinate restoration for stations stored without height.
+[*]Configurable icons and synchronization interval.
+[/LIST]
+
+[CENTER][ATTACH=full]983207[/ATTACH]
+
+[ATTACH]984573[/ATTACH] [ATTACH]984574[/ATTACH]
+[I]MTR stations and depots on Dynmap.[/I][/CENTER]
+
+[SIZE=4][B]⚡ Built for live servers[/B][/SIZE]
+[LIST]
+[*]MTR data is read [B]on MTR's own simulation thread[/B], the same way MTR's own website reads it — the Minecraft server thread is never used.
+[*]Rail shapes are calculated once and [B]cached[/B] until a rail changes.
+[*]The website runs in separate (virtual) threads and every viewer receives [B]only what changed[/B].
+[*]All reflection lookups are cached — safe on hybrid servers such as Youer.
+[/LIST]
+
+[SIZE=4][B]🛠️ Admin tools[/B][/SIZE]
+[LIST]
+[*][B]/mtrmap[/B] — a clickable link to the web map for every player.
+[*][B]/mtrstations[/B], [B]/mtrroutes[/B] — station and route lists in game or in the console.
+[*][B]stations.txt[/B] / [B]routes.txt[/B] exports.
+[*]Station and route blacklists.
+[*]Old config.yml files are upgraded automatically — new settings are added with comments.
+[/LIST]
+
+[CENTER][COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR][/CENTER]
+
+[SIZE=5][B]☑️ Requirements[/B][/SIZE]
+[LIST]
+[*][B]Minecraft:[/B] 1.21.1 / 1.21.4.
+[*][B]Server software:[/B] [B]Youer[/B] or another hybrid server that runs NeoForge mods together with the Bukkit, Spigot and Paper APIs.
+[*][B]MTR:[/B] 4.1.0-beta.2 — [B]required[/B] (other MTR 4.x builds should work).
+[*][B]Dynmap:[/B] [COLOR=#46C17A][B]optional[/B][/COLOR] — only needed for the Dynmap markers (3.7-beta8 tested). Without Dynmap the web map and commands keep working.
+[*][B]Java:[/B] 21+ (any normal JDK/JRE).
+[/LIST]
+
+[I]Note: a plain Bukkit, Paper or Spigot server without the MTR mod has no MTR data, so there is nothing to show.[/I]
+
+[SIZE=5][B]⬇️ Quick start[/B][/SIZE]
+[LIST=1]
+[*]Drop [B]MTR-Dynmap-Bridge-1.0.0.2.jar[/B] into the [B]plugins[/B] folder. [B]When updating, delete the old jar first[/B] (keep your config.yml).
+[*]Open TCP port [B]25970[/B] in your firewall / hosting panel (or set another port in config.yml).
+[*]Start the server — the console shows [B]Web map started on port 25970[/B] and then [B]MTR detected[/B].
+[*]Open [B]http://<server-ip>:25970/[/B] in a browser, or type [B]/mtrmap[/B] in game.
+[/LIST]
+Full installation and configuration guide: see the [B]Documentation[/B] tab.
+
+[SIZE=5][B]💻 Commands[/B][/SIZE]
+[LIST]
+[*][B]/mtrmap[/B] (alias [B]/transitmap[/B]) — clickable link to the web map. Permission [B]mtrdynmap.map[/B] (everyone).
+[*][B]/mtrstations [search][/B] — list of MTR stations. Permission [B]mtrdynmap.admin[/B] (op).
+[*][B]/mtrroutes [search][/B] — list of MTR routes with vehicles on the way. Permission [B]mtrdynmap.admin[/B] (op).
+[/LIST]
+
+[CENTER][COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR][/CENTER]
+
+[SIZE=5][B]🚀 What's New in 1.0.0.2[/B][/SIZE]
+[LIST]
+[*][B]Live web map[/B] built into the plugin: MTR rails with curves in the colours of your lines, platforms, depot sidings, station areas, depots and smoothly moving vehicles (trains, boats, cable cars, airplanes).
+[*][B]Lines list[/B] with highlighting, [B]vehicle list[/B] with search and "follow", [B]station window[/B] with lines, vehicles at the station and vehicles heading there.
+[*][B]Transport type switches[/B] — trains, boats, cable cars and airplanes can each be hidden with a tick.
+[*]Data is read on [B]MTR's own simulation thread[/B] — nothing runs on the Minecraft server thread.
+[*][B]Dynmap is optional[/B] — without it the web map and commands keep working. Dynmap markers are unchanged; sync interval and icons are now configurable.
+[*][B]English / Russian[/B] localization of the website and messages ([B]language: "en"[/B] or [B]"ru"[/B]).
+[*]New commands [B]/mtrmap[/B], [B]/mtrstations[/B], [B]/mtrroutes[/B]; stations.txt / routes.txt exports; station and route blacklists.
+[*]Existing config.yml files get the new settings appended automatically; worlds mappings are kept.
+[*]Quieter console.
+[/LIST]
+
+[SPOILER="Older versions"]
+[B]What's New 1.0.0.1[/B]
+[LIST]
+[*]Fixed Dynmap markers remaining after MTR stations or depots were removed; automatic cleanup of station and depot markers.
+[*]Automatic world and dimension detection, with optional world mappings in config.yml.
+[*]Automatic Y coordinate restoration when determining the surface location.
+[/LIST]
+
+[B]What's New 1.0.0.0[/B]
+[LIST]
+[*]First release: MTR stations and depots on Dynmap.
+[/LIST]
+[/SPOILER]
+
+[CENTER][COLOR=#E53935][B]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/B][/COLOR][/CENTER]
+
+[SIZE=4][B]🔗 Also by the author[/B][/SIZE]
+[B][URL='https://www.spigotmc.org/resources/create-railways-dynmap-bridge.139668/']Create Railways - Dynmap Bridge[/URL][/B] — the same live web map and Dynmap markers for the Create mod's railways.
+[IMG]https://www.spigotmc.org/attachments/2026-1-gif.986488/[/IMG]
+
+[SIZE=5][B]© License[/B][/SIZE]
+Copyright © 2026 Igrobar. All rights reserved.
+[LIST]
+[*]Free to use on any Minecraft server, including public and commercial servers.
+[*]Re-uploading, selling or publishing modified versions requires the author's permission.
+[/LIST]
+[SIZE=2][I]The web map uses Leaflet (BSD-2-Clause). Minecraft Transit Railway is made by its own authors and is not affiliated with this plugin.[/I][/SIZE]

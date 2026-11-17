@@ -1,0 +1,37 @@
+MTR-Dynmap Bridge
+Copyright (c) 2026 Igrobar. All rights reserved.
+
+1. PERMITTED USE
+   You may, free of charge:
+   a) download the official releases of this software;
+   b) install and run it on any Minecraft server, including public and
+      commercial servers;
+   c) edit its configuration files and place your own website files in the
+      plugin's "web" override folder for your own server;
+   d) read the source code and build it for your own use;
+   e) submit issues and pull requests to the official repository.
+
+2. RESTRICTIONS
+   Without prior written permission from the copyright holder you may not:
+   a) redistribute, re-upload or mirror this software or its source code,
+      in original or modified form, on any website, platform or marketplace;
+   b) sell this software or include it in a paid product or package;
+   c) publish modified versions or derivative works;
+   d) remove or change this license or the copyright notices.
+
+3. THIRD-PARTY COMPONENTS
+   This software includes Leaflet 1.9.3 (https://leafletjs.com), licensed
+   under the BSD 2-Clause License. Its license text is included in
+   src/main/resources/web/assets/vendor/LEAFLET-LICENSE.txt and inside the
+   plugin jar. That license applies to Leaflet only.
+   Minecraft Transit Railway (MTR) and Dynmap are separate projects by their
+   own authors; they are not included in this software.
+
+4. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.

@@ -1,6 +1,42 @@
-.gradle/
+# ---- Build output ----
 build/
-*.code-workspace
+out/
+bin/
+target/
+*.class
+
+# ---- Gradle ----
+.gradle/
+# Keep the Gradle wrapper, ignore every other jar
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- IDE / editor files ----
 .idea/
 *.iml
-out/
+*.ipr
+*.iws
+.vscode/
+*.code-workspace
+.settings/
+.classpath
+.project
+.factorypath
+nbproject/
+.nb-gradle/
+.nb-gradle-properties
+
+# ---- Test servers and logs ----
+run/
+logs/
+*.log
+
+# ---- Archives ----
+*.rar
+*.zip
+*.7z
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+desktop.ini
