@@ -2,7 +2,7 @@
 
 <img width="160" height="160" alt="MTR-Dynmap-Bridge" src="https://github.com/user-attachments/assets/1bf25f7e-1603-4609-805b-0b7992b207e7" />
 
-# MTR-Dynmap Bridge
+# MTR-Dynmap Bridge — Live Train Map
 
 **Live web map of Minecraft Transit Railway vehicles, plus MTR stations and depots on Dynmap**
 
@@ -109,9 +109,9 @@ Open `http://<server-ip>:25970/` in any browser (or type `/mtrmap` in game). No 
 
 <img src="docs/images/web-map-panel.jpg" alt="Side panel: layers, transport type switches and the lines list" width="230" align="right" />
 
-**In the side panel:** switch dimensions, toggle layers and labels, switch transport types on and off (🚆 trains, ⛴️ boats, 🚡 cable cars, ✈️ airplanes — the block appears when your network has more than one type, and each browser remembers its choice), click a line to highlight it, search vehicles by line, station or destination, click a vehicle to follow it. Click a station to see its lines and which vehicles are there or on their way.
+**In the side panel:** switch dimensions, toggle layers and labels, switch transport types on and off (🚆 trains, ⛴️ boats, 🚡 cable cars, ✈️ airplanes — the block appears when your network has more than one type, and each browser remembers its choice), click a line to highlight it, search vehicles by line, station or destination, click a vehicle to follow it. Click a station to see its lines and which vehicles are there or on their way. The page address keeps the current view, so a link can be shared.
 
-**Lines and directions:** in MTR a line is usually two routes — there and back. With **Merge directions** ticked (the default, remembered by each browser) routes with the same number are one line in the list; routes without a number are matched by name and colour. Click the line to highlight it in both directions, or open it with ▸ and click one direction (`A1 → A2`, or clockwise / anticlockwise for circular lines). The station window then shows the vehicles of every direction separately. Untick it to list every route on its own. The page address keeps the current view, so a link can be shared.
+**Lines and directions:** in MTR a line is usually two routes — there and back. With **Merge directions** ticked (the default, remembered by each browser) routes with the same number are one line in the list; routes without a number are matched by name and colour. Click the line to highlight it in both directions, or open it with ▸ and click one direction (`A1 → A2`, or clockwise / anticlockwise for circular lines). The station window then shows the vehicles of every direction separately. Untick it to list every route on its own.
 
 > [!TIP]
 > Visitors can switch the website language with `?lang=en` or `?lang=ru` at the end of the address, e.g. `http://example.com:25970/?lang=ru`.
